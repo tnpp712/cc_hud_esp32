@@ -121,16 +121,26 @@ Two STL/3MF parts, both parametric (`*.py` sources in repo root):
 
 | File | What | Outer size |
 |---|---|---|
-| `cc_hud_case.3mf` | Main shell — front panel + screen window + **side USB-C cut-out** + 4 ESP32 standoffs + feet | 51 × 58 × 55 mm |
-| `cc_hud_back_cover.3mf` | Drop-in lip-jointed back cover with pry-open notches | 51 × 58 × 5 mm |
+| `cc_hud_case.3mf` | Main shell — front panel + screen window + header-pin relief pocket + feet (no standoffs) | 40 × 58 × 55 mm |
+| `cc_hud_back_cover.3mf` | Drop-in lip-jointed back cover **with USB-C through-hole** + pry-open notches | 40 × 58 × 5 mm |
 
-Screen is **portrait** — long edge along Y. Active area 33 × 35 mm
-(window cut into the front panel), screen module PCB 34 × 44 mm
-sandwiched between the front panel and the ESP32 board.
+Screen is **portrait** — long edge along Y. Active area 33 × 35 mm,
+screen module PCB 34 × 44 mm.
 
-USB-C exits the **right-hand side wall** (+X). The ESP32 board is laid
-sideways inside the case (long edge 45 mm along X, short edge 32 mm
-along Y) so its USB-C connector points naturally out of that side.
+There are **no standoffs**. The screen PCB sits flush against the
+front panel (the active glass embeds inside the 2.7 mm panel cut-out);
+the ESP32 board rides directly behind the screen PCB. Use 5 × 5 mm
+double-sided foam tape (or a dab of hot glue) at the corners to lock
+both PCBs in place.
+
+The inner face of the front panel has a 30 × 5 × 1.5 mm relief pocket
+along the bottom edge of the screen PCB. That's where the screen
+module's header-pin solder joints sit; the pocket lets the PCB seat
+fully against the panel instead of being held off by the joints.
+
+USB-C exits **through the back cover**. Route the connector from the
+board's USB-C (on the +Y edge) to the centre of the back cover with
+a short 90° USB-C female-to-male adapter.
 
 Internal layout (Z = depth, front panel at Z=0):
 

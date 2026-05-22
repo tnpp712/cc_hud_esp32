@@ -16,13 +16,16 @@ Origin: geometric centre of the case footprint, +X right, +Y up
 
 Z layering (FRONT bumped to 2.7 mm so the screen glass embeds inside
 the panel, leaving only the PCB depth inside the cavity):
-    0    .. 2.7    front panel (screen active glass occupies the cut-out)
+    0    .. 2.7    front panel (screen active glass occupies the cut-out;
+                                solder-joint relief pocket carved 1.5 mm
+                                deep into the inner face under the
+                                screen PCB's bottom-edge header row)
     2.7  .. 4.2    screen module PCB (1.5 mm)
-    2.7  .. 4.1    1.4 mm standoffs (offset outside ESP corner)
-    4.1  .. 5.7    ESP32-S3 board PCB
-    5.7  .. ~10    ESP32 components + USB-C body
-    ~10  .. ~15    LiPo cell (~5 mm thick)
-    ~15  .. 53     TP4056 + MT3608 + slide switch + cabling (~38 mm slack)
+    4.2  .. 5.8    ESP32-S3 board PCB (tape / glue directly behind the
+                                       screen PCB — no standoffs)
+    5.8  .. ~11    ESP32 components + USB-C body
+    ~11  .. ~16    LiPo cell (~5 mm thick)
+    ~16  .. 53     TP4056 + MT3608 + slide switch + cabling
     53   .. 55     back cover lip
 
 Internal width (40-2*2 = 36) accommodates the 35 mm battery plus a
@@ -31,13 +34,11 @@ Internal width (40-2*2 = 36) accommodates the 35 mm battery plus a
 the 45 mm ESP32 board for cable routing.
 """
 
-from build123d import Align, Box, Cylinder, Pos
+from build123d import Align, Box, Pos
 
 
 # ── outer shell ─────────────────────────────────────────────────
-CASE_W = 51.0   # X — fits the ESP32 board laid SIDEWAYS (long edge 45
-                # along X) so USB-C exits the right-hand side wall.
-                # Was 40 when the board was upright.
+CASE_W = 40.0   # X — fits the 32 mm ESP32 board (upright) + walls
 CASE_H = 58.0   # Y — fits 52 mm battery + clearance + 4 mm walls
 CASE_D = 55.0   # Z — battery + power stack live behind the ESP32
 WALL   = 2.0
@@ -45,7 +46,11 @@ FRONT  = 2.7    # screen active glass (2.7 mm) embeds INSIDE the front
                 # panel cut-out; only the 1.5 mm PCB sits behind the
                 # panel, leaving room for the 1.4 mm standoffs.
 
-INNER_W = CASE_W - 2 * WALL   # 47
+# NOTE: the USB-C charging port now exits through the BACK COVER, not
+# the case. Use a 90° USB-C extension cable inside the cavity, or a
+# USB-C panel-mount socket secured behind the back-cover hole.
+
+INNER_W = CASE_W - 2 * WALL   # 36
 INNER_H = CASE_H - 2 * WALL   # 54
 
 
@@ -64,17 +69,28 @@ SCREEN_PCB_T   = 1.5    # PCB only — active glass is hidden inside FRONT
 #  drop of hot glue on each corner is enough.)
 
 
-# ── ESP32 board (laid SIDEWAYS so USB-C exits the side wall) ─────
-ESP_PCB_W = 45.0   # X — long edge of the board runs along X now
-ESP_PCB_H = 32.0   # Y — short edge along Y
+# ── ESP32 board (upright, short edge along X) ───────────────────
+ESP_PCB_W = 32.0   # X — short edge
+ESP_PCB_H = 45.0   # Y — long edge
 ESP_PCB_T = 1.6
 
-STANDOFF_D     = 3.0
-STANDOFF_H     = 1.4    # ← user-requested physical column height
-STANDOFF_INSET = 0.5    # standoff centre is 0.5 mm INSIDE each ESP32
-                        # corner. The standoff (X=±22, Y=±15.5) sits
-                        # outside the screen-PCB X edge (±17) so it
-                        # cannot collide with the screen PCB in Z.
+# (Standoffs removed at user request. The ESP32 board now rides
+#  directly behind the screen PCB; secure it with a 5 × 5 mm dab of
+#  double-sided foam tape or a small drop of hot glue at each corner.)
+
+
+# ── solder-joint relief pocket on the inner face of the front panel ─
+# The screen module's header pins / FPC solder pads on the back of the
+# PCB stick out roughly 1.5 mm. They live along the BOTTOM edge of the
+# screen PCB (the -Y short edge). We carve a shallow pocket into the
+# inner face of the front panel under that strip so the screen PCB
+# can sit flush against the panel without the pins jamming.
+SLOT_X     = 30.0   # how wide the pocket runs across X (pin row span)
+SLOT_Y     = 5.0    # depth into the case along Y (crosses the PCB edge)
+SLOT_Z     = 1.5    # pocket depth — matches user-quoted pin height
+SLOT_Y_POS = -19.5  # Y centre of the pocket (slightly inside the
+                    # screen PCB outline so the pins it relieves sit
+                    # both inside and just below the PCB edge)
 
 
 # ── USB-C cutout (top wall) ─────────────────────────────────────
@@ -93,12 +109,12 @@ FOOT_INSET = 3.0
 # ── derived Z positions ─────────────────────────────────────────
 # With FRONT=2.7, the screen active glass sits in Z=0..2.7 (inside the
 # front-panel cut-out). The screen PCB occupies Z=2.7..4.2 right behind
-# the panel. Standoffs rise 1.4 mm from the panel inner face to Z=4.1,
-# so the ESP32 board sits at Z=4.1..5.7 — 0.1 mm of nominal interference
-# with the PCB back face at Z=4.2, which is absorbed by print tolerance.
+# the panel. Without standoffs, the ESP32 board is expected to sit
+# right behind the screen PCB (glued or taped); these Z positions are
+# documentary only.
 SCREEN_PCB_Z_BACK = FRONT + SCREEN_PCB_T            # 4.2
-ESP_PCB_Z_FRONT   = FRONT + STANDOFF_H              # 4.1
-ESP_PCB_Z_BACK    = ESP_PCB_Z_FRONT + ESP_PCB_T     # 5.7
+ESP_PCB_Z_FRONT   = SCREEN_PCB_Z_BACK               # 4.2 (touches PCB back)
+ESP_PCB_Z_BACK    = ESP_PCB_Z_FRONT + ESP_PCB_T     # 5.8
 
 
 def gen_step():
@@ -116,28 +132,16 @@ def gen_step():
              align=(Align.CENTER, Align.CENTER, Align.MIN))
     case -= Pos(0, 0, -0.5) * sw
 
-    # 4. USB-C cutout through the +X side wall (right-hand side when the
-    #    screen is facing you). The board's short edge with the USB-C
-    #    connector points along +X with the board laid sideways.
-    usb = Box(WALL + 2.0,
-              USB_W + USB_CLEARANCE,
-              USB_H + USB_CLEARANCE,
-              align=(Align.CENTER, Align.CENTER, Align.CENTER))
-    usb_x = CASE_W / 2 - WALL / 2
-    usb_z = ESP_PCB_Z_BACK + USB_H / 2
-    case -= Pos(usb_x, 0, usb_z) * usb
+    # 4. (No USB-C cutout on the case body — the charging port now
+    #     punches through the back cover. See cc_hud_back_cover.py.)
 
-    # 5. ESP32 standoffs — four 1.4 mm-tall cylinders just outside each
-    #    ESP32 board corner. Pushed slightly past the corner so the
-    #    column does not eat into the screen PCB sitting in front of it.
-    standoff_h = STANDOFF_H   # 1.4 mm physical
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            cx = sx * (ESP_PCB_W / 2 - STANDOFF_INSET)
-            cy = sy * (ESP_PCB_H / 2 - STANDOFF_INSET)
-            so = Cylinder(STANDOFF_D / 2, standoff_h,
-                          align=(Align.CENTER, Align.CENTER, Align.MIN))
-            case += Pos(cx, cy, FRONT) * so
+    # 5. Solder-joint relief pocket — a shallow rectangular cavity on
+    #    the inner face of the front panel, sitting where the screen
+    #    module's header-pin solder pads would otherwise press against
+    #    the panel.
+    pocket = Box(SLOT_X, SLOT_Y, SLOT_Z,
+                 align=(Align.CENTER, Align.CENTER, Align.MIN))
+    case -= Pos(0, SLOT_Y_POS, FRONT - SLOT_Z) * pocket
 
     # 6. Four feet hanging below the bottom face.
     fy = -CASE_H / 2 - FOOT_H / 2
