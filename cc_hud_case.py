@@ -14,14 +14,15 @@ Dimensions (mm):
 Origin: geometric centre of the case footprint, +X right, +Y up
 (USB-C side), +Z back. Front face at Z=0, open back at Z=CASE_D.
 
-Z layering:
-    0    .. 2      front panel
-    2    .. 6.2    screen module (4.2 mm: active + PCB)
-    6.2  .. 7.6    wire gap behind the screen PCB (1.4 mm — tightened)
-    7.6  .. 9.2    ESP32-S3 board PCB
-    9.2  .. ~14    ESP32 components + USB-C body
-    ~14  .. ~19    LiPo cell (~5 mm thick)
-    ~19  .. 53     TP4056 + MT3608 + slide switch + cabling (~34 mm slack)
+Z layering (FRONT bumped to 2.7 mm so the screen glass embeds inside
+the panel, leaving only the PCB depth inside the cavity):
+    0    .. 2.7    front panel (screen active glass occupies the cut-out)
+    2.7  .. 4.2    screen module PCB (1.5 mm)
+    2.7  .. 4.1    1.4 mm standoffs (offset outside ESP corner)
+    4.1  .. 5.7    ESP32-S3 board PCB
+    5.7  .. ~10    ESP32 components + USB-C body
+    ~10  .. ~15    LiPo cell (~5 mm thick)
+    ~15  .. 53     TP4056 + MT3608 + slide switch + cabling (~38 mm slack)
     53   .. 55     back cover lip
 
 Internal width (40-2*2 = 36) accommodates the 35 mm battery plus a
@@ -38,7 +39,10 @@ CASE_W = 40.0   # X — fits 35 mm battery + clearance + 4 mm walls
 CASE_H = 58.0   # Y — fits 52 mm battery + clearance + 4 mm walls
 CASE_D = 55.0   # Z — battery + power stack live behind the ESP32
 WALL   = 2.0
-FRONT  = 2.0
+FRONT  = 2.7    # bumped from 2.0 so the screen active glass (2.7 mm)
+                # embeds INSIDE the front panel cut-out, exposing only
+                # the PCB depth (1.5 mm) inside the cavity. That's what
+                # lets the standoffs be physically 1.4 mm short.
 
 INNER_W = CASE_W - 2 * WALL   # 36
 INNER_H = CASE_H - 2 * WALL   # 54
@@ -49,8 +53,8 @@ SCREEN_W       = 33.0   # active area, X (short edge)
 SCREEN_H       = 35.0   # active area, Y (long edge)
 SCREEN_PCB_W   = 34.0
 SCREEN_PCB_H   = 44.0
-SCREEN_TOTAL_T = 4.2    # active + PCB combined
-SCREEN_PCB_T   = 1.5
+SCREEN_TOTAL_T = 4.2    # active + PCB combined (informational)
+SCREEN_PCB_T   = 1.5    # PCB only — active glass is hidden inside FRONT
 
 # (Removed: the original 4 corner L-bracket hooks have been deleted at
 #  user request. The screen PCB now relies on the front panel pressing
@@ -63,12 +67,15 @@ SCREEN_PCB_T   = 1.5
 ESP_PCB_W = 32.0
 ESP_PCB_H = 45.0
 ESP_PCB_T = 1.6
-WIRE_GAP  = 1.4    # screen PCB back → ESP32 PCB front (was 3.0; user wants
-                   #   the columns minimal — physical standoff_h is therefore
-                   #   SCREEN_TOTAL_T (4.2) + WIRE_GAP (1.4) = 5.6 mm)
 
 STANDOFF_D     = 3.0
-STANDOFF_INSET = 1.5
+STANDOFF_H     = 1.4    # ← user-requested physical column height
+STANDOFF_INSET = -0.5   # negative = standoff centre sits just OUTSIDE the
+                        #   ESP32 PCB corner, so the standoff column does
+                        #   not collide with the screen PCB sitting in
+                        #   Z=FRONT..FRONT+SCREEN_PCB_T. The board corner
+                        #   still falls inside the standoff disc because
+                        #   the board corner is only 0.5 mm out.
 
 
 # ── USB-C cutout (top wall) ─────────────────────────────────────
@@ -85,9 +92,14 @@ FOOT_INSET = 3.0
 
 
 # ── derived Z positions ─────────────────────────────────────────
-SCREEN_PCB_Z_BACK = FRONT + SCREEN_TOTAL_T          # 6.2
-ESP_PCB_Z_FRONT   = SCREEN_PCB_Z_BACK + WIRE_GAP    # 9.2
-ESP_PCB_Z_BACK    = ESP_PCB_Z_FRONT + ESP_PCB_T     # 10.8
+# With FRONT=2.7, the screen active glass sits in Z=0..2.7 (inside the
+# front-panel cut-out). The screen PCB occupies Z=2.7..4.2 right behind
+# the panel. Standoffs rise 1.4 mm from the panel inner face to Z=4.1,
+# so the ESP32 board sits at Z=4.1..5.7 — 0.1 mm of nominal interference
+# with the PCB back face at Z=4.2, which is absorbed by print tolerance.
+SCREEN_PCB_Z_BACK = FRONT + SCREEN_PCB_T            # 4.2
+ESP_PCB_Z_FRONT   = FRONT + STANDOFF_H              # 4.1
+ESP_PCB_Z_BACK    = ESP_PCB_Z_FRONT + ESP_PCB_T     # 5.7
 
 
 def gen_step():
@@ -114,10 +126,10 @@ def gen_step():
     usb_z = ESP_PCB_Z_BACK + USB_H / 2
     case -= Pos(0, usb_y, usb_z) * usb
 
-    # 5. ESP32 standoffs — four cylinders rising from the front inner
-    #    wall to the front face of the ESP32 board. Shortened from the
-    #    previous 7.2 mm to 5.6 mm by tightening WIRE_GAP to 1.4 mm.
-    standoff_h = ESP_PCB_Z_FRONT - FRONT   # 5.6 mm
+    # 5. ESP32 standoffs — four 1.4 mm-tall cylinders just outside each
+    #    ESP32 board corner. Pushed slightly past the corner so the
+    #    column does not eat into the screen PCB sitting in front of it.
+    standoff_h = STANDOFF_H   # 1.4 mm physical
     for sx in (-1, 1):
         for sy in (-1, 1):
             cx = sx * (ESP_PCB_W / 2 - STANDOFF_INSET)
