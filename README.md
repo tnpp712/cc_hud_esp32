@@ -121,8 +121,21 @@ Two STL/3MF parts, both parametric (`*.py` sources in repo root):
 
 | File | What | Outer size |
 |---|---|---|
-| `cc_hud_case.3mf` | Main shell — front panel + screen window + USB-C cut-out + PCB hooks + standoffs + feet | 38 × 50 × 30 mm |
-| `cc_hud_back_cover.3mf` | Drop-in back cover with lip joint + pry-open notches | 38 × 50 × 5 mm |
+| `cc_hud_case.3mf` | Main shell — front panel + screen window + USB-C cut-out + screen-PCB retention beams + ESP32 standoffs + feet | 48 × 56 × 55 mm |
+| `cc_hud_back_cover.3mf` | Drop-in lip-jointed back cover with pry-open notches | 48 × 56 × 5 mm |
+
+Internal layout (Z = depth, front panel at Z=0):
+
+| Z range | Layer |
+|---|---|
+| 0 – 2 mm | Front panel |
+| 2 – 6.2 mm | Screen module (active + PCB, 4.2 mm combined) |
+| 6.2 – 9.2 mm | Wire gap behind the screen PCB |
+| 9.2 – 10.8 mm | ESP32-S3 board PCB |
+| 10.8 – ~16 mm | ESP32 components + USB-C body |
+| ~16 – ~21 mm | LiPo cell (35 × 52 × ~5 mm) |
+| ~21 – 53 mm | TP4056 + MT3608 + slide switch + cabling (~32 mm slack) |
+| 53 – 55 mm | Back cover lip |
 
 To regenerate after editing a parameter:
 
