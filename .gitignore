@@ -22,6 +22,9 @@ compile_commands.json
 *.bin
 *.hex
 
+# CAD intermediates — keep .py source and .step + .3mf, drop .stl scratch.
+*.stl
+
 # Python
 __pycache__/
 *.pyc
