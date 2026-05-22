@@ -8,6 +8,7 @@
 #include <NimBLEDevice.h>
 
 #include <cstring>
+#include <cstddef>
 
 #include "config.h"
 
@@ -30,11 +31,17 @@ volatile bool g_connected = false;
 
 // ----------------------------------------------------------------- helpers --
 //
-// Read a little-endian u16 from `buf[offset]`. Bounds are validated by the
-// caller (we only enter parse() with a kQuotaPayloadLen-byte buffer).
+// Little-endian readers. Bounds validated by callers (we only enter the
+// parse path after length+msg_type validation).
 inline uint16_t leU16(const uint8_t* buf, size_t offset) {
     return static_cast<uint16_t>(buf[offset]) |
            (static_cast<uint16_t>(buf[offset + 1]) << 8);
+}
+inline uint32_t leU32(const uint8_t* buf, size_t offset) {
+    return  static_cast<uint32_t>(buf[offset]) |
+           (static_cast<uint32_t>(buf[offset + 1]) << 8) |
+           (static_cast<uint32_t>(buf[offset + 2]) << 16) |
+           (static_cast<uint32_t>(buf[offset + 3]) << 24);
 }
 
 // --------------------------------------------------------------- callbacks --
@@ -51,20 +58,66 @@ public:
         }
         Serial.println();
 
-        if (len != kQuotaPayloadLen) {
-            bleNotifyState(kStateErrLen);
-            return;
+        // Route by (length, msg_type).
+        //   v1 (9 bytes, 0x01)  : used+limit only.
+        //   v2 (17 bytes, 0x02) : v1 + 2× u32 reset_in_seconds.
+        //   v3 (>=27 bytes, 0x03): v2 + mode + cost + duration + title.
+        const bool is_v1 = (len == kQuotaPayloadLenV1) &&
+                           (data[0] == kQuotaMsgTypeV1);
+        const bool is_v2 = (len == kQuotaPayloadLenV2) &&
+                           (data[0] == kQuotaMsgTypeV2);
+        bool is_v3 = false;
+        size_t title_len = 0;
+        if (len >= kQuotaPayloadLenV3Base && data[0] == kQuotaMsgTypeV3) {
+            title_len = data[26];
+            if (len == kQuotaPayloadLenV3Base + title_len && title_len <= kTitleMaxLen) {
+                is_v3 = true;
+            }
         }
-        if (data[0] != kQuotaMsgType) {
-            bleNotifyState(kStateErrType);
+
+        if (!is_v1 && !is_v2 && !is_v3) {
+            // Distinguish "wrong length" from "wrong msg_type" for the host.
+            if (data[0] == kQuotaMsgTypeV1 || data[0] == kQuotaMsgTypeV2 ||
+                data[0] == kQuotaMsgTypeV3) {
+                bleNotifyState(kStateErrLen);
+            } else {
+                bleNotifyState(kStateErrType);
+            }
             return;
         }
 
         QuotaSnapshot parsed;
-        parsed.used_5h        = leU16(data, 1);
-        parsed.limit_5h       = leU16(data, 3);
-        parsed.used_7d        = leU16(data, 5);
-        parsed.limit_7d       = leU16(data, 7);
+
+        if (is_v3) {
+            parsed.mode           = data[1];
+            parsed.used_5h        = leU16(data, 2);
+            parsed.limit_5h       = leU16(data, 4);
+            parsed.used_7d        = leU16(data, 6);
+            parsed.limit_7d       = leU16(data, 8);
+            parsed.reset_in_s_5h  = leU32(data, 10);
+            parsed.reset_in_s_7d  = leU32(data, 14);
+            parsed.cost_micro_usd = leU32(data, 18);
+            parsed.duration_s     = leU32(data, 22);
+            // Copy ASCII title (already length-bounded above).
+            if (title_len > 0) {
+                std::memcpy(parsed.title, data + 27, title_len);
+            }
+            parsed.title[title_len] = '\0';
+        } else {
+            // v1 / v2 layout. Default mode = subscription, default title.
+            parsed.mode    = kSnapshotModeSubscription;
+            std::strncpy(parsed.title, "CC HUD", sizeof(parsed.title) - 1);
+            parsed.title[sizeof(parsed.title) - 1] = '\0';
+            parsed.used_5h        = leU16(data, 1);
+            parsed.limit_5h       = leU16(data, 3);
+            parsed.used_7d        = leU16(data, 5);
+            parsed.limit_7d       = leU16(data, 7);
+            if (is_v2) {
+                parsed.reset_in_s_5h = leU32(data, 9);
+                parsed.reset_in_s_7d = leU32(data, 13);
+            }
+        }
+
         parsed.last_update_ms = static_cast<uint64_t>(millis());
 
         if (g_on_write) {

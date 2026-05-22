@@ -33,9 +33,28 @@ constexpr const char* kBleServiceUuid       = "12345678-aaaa-bbbb-cccc-123456789
 constexpr const char* kBleQuotaCharUuid     = "12345678-aaaa-bbbb-cccc-1234567890a1";
 constexpr const char* kBleStateCharUuid     = "12345678-aaaa-bbbb-cccc-1234567890a2";
 
-// Quota payload framing.
-constexpr size_t  kQuotaPayloadLen = 9;       // 1 + 4 * 2 little-endian
-constexpr uint8_t kQuotaMsgType    = 0x01;    // structured quota message
+// Quota payload framing — three versions are accepted by the firmware.
+//   v1 (0x01, 9 bytes):  used+limit for 5h and 7d only.
+//   v2 (0x02, 17 bytes): v1 + two u32 LE "seconds-until-reset" counters.
+//   v3 (0x03, 27+title_len bytes): v2 + mode byte + cost + duration + title.
+//     The firmware decrements reset_in_s in real time via millis() so the
+//     countdown stays accurate between pushes. Mode 0 = subscription (show
+//     5h/7d), mode 1 = api (show cost + duration).
+constexpr size_t  kQuotaPayloadLenV1     = 9;
+constexpr size_t  kQuotaPayloadLenV2     = 17;
+constexpr size_t  kQuotaPayloadLenV3Base = 27;   // mandatory fields before title
+constexpr uint8_t kQuotaMsgTypeV1        = 0x01;
+constexpr uint8_t kQuotaMsgTypeV2        = 0x02;
+constexpr uint8_t kQuotaMsgTypeV3        = 0x03;
+// Mode flags (v3+).
+constexpr uint8_t kModeSubscription = 0x00;
+constexpr uint8_t kModeApi          = 0x01;
+// Title constraints (v3+).
+constexpr size_t  kTitleMaxLen = 32;     // title_len byte caps payload growth
+constexpr size_t  kTitleBufLen = 33;     // 32 chars + trailing null
+// Back-compat aliases used by older code paths.
+constexpr size_t  kQuotaPayloadLen = kQuotaPayloadLenV1;
+constexpr uint8_t kQuotaMsgType    = kQuotaMsgTypeV1;
 
 // State notifications (short ASCII strings).
 constexpr const char* kStateOk      = "OK";
@@ -45,12 +64,18 @@ constexpr const char* kStateErrType = "ERR type";
 // ---------------------------------------------------------------------------
 // NVS keys (Preferences namespace "cc_hud"). Names are <=15 chars each.
 // ---------------------------------------------------------------------------
-constexpr const char* kNvsNamespace = "cc_hud";
-constexpr const char* kNvsKey5hUsed = "5h_used";
-constexpr const char* kNvsKey5hLim  = "5h_lim";
-constexpr const char* kNvsKey7dUsed = "7d_used";
-constexpr const char* kNvsKey7dLim  = "7d_lim";
-constexpr const char* kNvsKeyTs     = "ts";
+constexpr const char* kNvsNamespace  = "cc_hud";
+constexpr const char* kNvsKey5hUsed  = "5h_used";
+constexpr const char* kNvsKey5hLim   = "5h_lim";
+constexpr const char* kNvsKey7dUsed  = "7d_used";
+constexpr const char* kNvsKey7dLim   = "7d_lim";
+constexpr const char* kNvsKeyTs      = "ts";
+constexpr const char* kNvsKey5hReset = "5h_reset";
+constexpr const char* kNvsKey7dReset = "7d_reset";
+constexpr const char* kNvsKeyMode    = "mode";
+constexpr const char* kNvsKeyCostU   = "cost_uusd";   // cost in micro-USD
+constexpr const char* kNvsKeyDurS    = "dur_s";
+constexpr const char* kNvsKeyTitle   = "title";
 
 // ---------------------------------------------------------------------------
 // Display geometry and color palette. 16-bit RGB565 values.
