@@ -1,90 +1,144 @@
-// Minimal ST7789 hello-world for cc_hud, using Adafruit_ST7789 (not TFT_eSPI).
-// Explicit SPI bus + pin selection so we can see exactly what's happening.
-// Target: ESP32-S3R8 (8MB PSRAM, but disabled here) + 1.54" 240x240 IPS ST7789.
+// main.cpp
+// Top-level firmware for cc_hud. Glues persistence, display, and the BLE
+// GATT server into a small state machine:
+//
+//   setup():    init Serial, init NVS, load last quota, init ST7789, init BLE
+//   loop():     drain redraw / connection events, refresh footer every 5 s
+//
+// BLE callbacks fire on the NimBLE task; they push parsed state into
+// `g_quota` / `g_conn_*` under a portMUX critical section, then set flags
+// for the main task to consume. Display rendering only happens in loop().
 
 #include <Arduino.h>
-#include <SPI.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_ST7789.h>
 
-// Board pin (silkscreen) → ESP32-S3 GPIO
-constexpr int8_t PIN_MOSI = 38;  // D11 — SDA
-constexpr int8_t PIN_SCK  = 48;  // D13 — SCL
-constexpr int8_t PIN_CS   = 21;  // D10 — CS (silkscreen "SC")
-constexpr int8_t PIN_DC   = 10;  // D7  — DC
-constexpr int8_t PIN_RST  = 17;  // D8  — RES
-constexpr int8_t PIN_BL   = 18;  // D9  — BLK
+#include "ble_server.h"
+#include "config.h"
+#include "display.h"
+#include "persistence.h"
 
-// ESP32-S3 has SPI2 (HSPI) and SPI3 (FSPI) freely available.
-// Force SPI2 (HSPI) so SPI3 stays free for anything else later.
-SPIClass spi(HSPI);
-Adafruit_ST7789 tft(&spi, PIN_CS, PIN_DC, PIN_RST);
+namespace cc_hud {
 
-static void log_chip_info() {
-  Serial.printf("[CHIP] model=%s rev=%d cores=%d cpu=%lu Hz\n",
-                ESP.getChipModel(), (int)ESP.getChipRevision(),
-                (int)ESP.getChipCores(), (unsigned long)ESP.getCpuFreqMHz() * 1000000UL);
-  Serial.printf("[CHIP] flash=%lu MB psram=%lu bytes free_heap=%lu\n",
-                (unsigned long)(ESP.getFlashChipSize() / (1024UL * 1024UL)),
-                (unsigned long)ESP.getPsramSize(),
-                (unsigned long)ESP.getFreeHeap());
+// Shared state between BLE callbacks (NimBLE task) and the Arduino loop task.
+portMUX_TYPE  g_lock = portMUX_INITIALIZER_UNLOCKED;
+QuotaSnapshot g_quota;
+
+volatile bool g_redraw_pending = true;
+volatile bool g_conn_pending   = false;
+volatile bool g_conn_state     = false;
+
+uint32_t g_last_footer_tick = 0;
+
+// --------------------------------------------------------------- callbacks --
+//
+// Invoked from the NimBLE task. Keep the work minimal: stash the parsed
+// snapshot, persist to NVS, flip the redraw flag — the main loop does the
+// actual display work.
+void onQuotaWrite(const QuotaSnapshot& parsed) {
+    portENTER_CRITICAL(&g_lock);
+    g_quota          = parsed;
+    g_redraw_pending = true;
+    portEXIT_CRITICAL(&g_lock);
+
+    if (persistenceSave(parsed)) {
+        Serial.println("[NVS] saved");
+    } else {
+        Serial.println("[NVS] save FAILED");
+    }
 }
 
+void onConnChange(bool connected) {
+    portENTER_CRITICAL(&g_lock);
+    g_conn_state   = connected;
+    g_conn_pending = true;
+    portEXIT_CRITICAL(&g_lock);
+}
+
+}  // namespace cc_hud
+
+// ============================================================== Arduino ===
 void setup() {
-  Serial.begin(115200);
-  delay(2500);  // wait for USB CDC enumeration
-  Serial.println();
-  Serial.println("[BOOT] cc_hud — Adafruit_ST7789 hello-world");
-  log_chip_info();
+    Serial.begin(115200);
+    delay(2500);  // give USB CDC time to enumerate after reset
+    Serial.println();
+    Serial.println("[BOOT] cc_hud v1");
+    Serial.printf("[CHIP] %s rev %d, %lu MHz, flash %lu MB, psram %lu B\n",
+                  ESP.getChipModel(),
+                  static_cast<int>(ESP.getChipRevision()),
+                  static_cast<unsigned long>(ESP.getCpuFreqMHz()),
+                  static_cast<unsigned long>(ESP.getFlashChipSize() /
+                                             (1024UL * 1024UL)),
+                  static_cast<unsigned long>(ESP.getPsramSize()));
 
-  // Manual backlight first (so we can see something even if SPI fails)
-  pinMode(PIN_BL, OUTPUT);
-  digitalWrite(PIN_BL, HIGH);
-  Serial.println("[BL] HIGH (backlight should be on now — look at the panel)");
+    // Load last-known quota from NVS so we have something to show even
+    // before the first BLE write arrives.
+    cc_hud::QuotaSnapshot loaded;
+    if (cc_hud::persistenceLoad(loaded)) {
+        Serial.printf("[NVS] load ok: 5h %u/%u  7d %u/%u  ts %llu\n",
+                      loaded.used_5h, loaded.limit_5h,
+                      loaded.used_7d, loaded.limit_7d,
+                      static_cast<unsigned long long>(loaded.last_update_ms));
+    } else {
+        Serial.println("[NVS] cold start (no quota saved)");
+    }
+    cc_hud::g_quota = loaded;
 
-  Serial.printf("[SPI] begin SCK=%d MISO=-1 MOSI=%d CS=%d\n",
-                PIN_SCK, PIN_MOSI, PIN_CS);
-  spi.begin(PIN_SCK, /*MISO*/ -1, PIN_MOSI, PIN_CS);
-  Serial.println("[SPI] begin done");
+    // Bring up the display, paint first frame.
+    cc_hud::displayInit();
+    Serial.println("[TFT] init done");
 
-  Serial.println("[TFT] init(240, 240, SPI_MODE0)...");
-  tft.init(240, 240, SPI_MODE0);
-  Serial.println("[TFT] init done");
+    cc_hud::DisplayView view;
+    view.quota         = loaded;
+    view.ble_connected = false;
+    view.now_ms        = static_cast<uint64_t>(millis());
+    cc_hud::displayRender(view, /*full_redraw=*/true);
+    Serial.println("[TFT] initial render done");
 
-  // Slow clock for safety while bringing up — 10 MHz is plenty for 1.54"
-  tft.setSPISpeed(10 * 1000 * 1000);
+    // Start the BLE GATT server and begin advertising.
+    cc_hud::bleServerInit(cc_hud::onQuotaWrite, cc_hud::onConnChange);
 
-  Serial.println("[TFT] setRotation(0)");
-  tft.setRotation(0);
-
-  Serial.println("[TFT] fillScreen RED");
-  tft.fillScreen(ST77XX_RED);
-  delay(600);
-
-  Serial.println("[TFT] fillScreen GREEN");
-  tft.fillScreen(ST77XX_GREEN);
-  delay(600);
-
-  Serial.println("[TFT] fillScreen BLUE");
-  tft.fillScreen(ST77XX_BLUE);
-  delay(600);
-
-  Serial.println("[TFT] BLACK + 'HELLO'");
-  tft.fillScreen(ST77XX_BLACK);
-  tft.setTextColor(ST77XX_WHITE);
-  tft.setTextSize(4);
-  tft.setCursor(20, 90);
-  tft.print("HELLO");
-
-  Serial.println("[DONE] entering loop()");
+    cc_hud::g_last_footer_tick = millis();
+    Serial.println("[BOOT] setup done");
 }
 
 void loop() {
-  static uint32_t last = 0;
-  if (millis() - last >= 1000) {
-    last = millis();
-    Serial.printf("[tick] %u s, heap=%lu\n",
-                  (unsigned)(millis() / 1000),
-                  (unsigned long)ESP.getFreeHeap());
-  }
+    bool need_redraw = false;
+    bool need_conn   = false;
+    bool conn_state  = false;
+    cc_hud::QuotaSnapshot snap;
+
+    portENTER_CRITICAL(&cc_hud::g_lock);
+    if (cc_hud::g_redraw_pending) {
+        snap                       = cc_hud::g_quota;
+        need_redraw                = true;
+        cc_hud::g_redraw_pending   = false;
+    }
+    if (cc_hud::g_conn_pending) {
+        conn_state                 = cc_hud::g_conn_state;
+        need_conn                  = true;
+        cc_hud::g_conn_pending     = false;
+    }
+    portEXIT_CRITICAL(&cc_hud::g_lock);
+
+    if (need_redraw) {
+        cc_hud::DisplayView v;
+        v.quota         = snap;
+        v.ble_connected = conn_state || cc_hud::bleIsConnected();
+        v.now_ms        = static_cast<uint64_t>(millis());
+        cc_hud::displayRender(v);
+    }
+    if (need_conn) {
+        cc_hud::displayUpdateConnection(conn_state);
+    }
+
+    // Footer freshness tick.
+    const uint32_t now = millis();
+    if (now - cc_hud::g_last_footer_tick >= cc_hud::kFooterRefreshMs) {
+        cc_hud::g_last_footer_tick = now;
+        portENTER_CRITICAL(&cc_hud::g_lock);
+        cc_hud::QuotaSnapshot s = cc_hud::g_quota;
+        portEXIT_CRITICAL(&cc_hud::g_lock);
+        cc_hud::displayTickFooter(s, static_cast<uint64_t>(now));
+    }
+
+    delay(50);  // light yield, keeps loop responsive without spinning hot
 }
