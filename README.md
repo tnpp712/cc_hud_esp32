@@ -5,10 +5,15 @@ A small desktop hardware HUD that mirrors Claude Code's rate-limit usage
 ESP32-S3 and updated over Bluetooth Low Energy from a wrapper plugged into
 your Claude Code statusline.
 
-![cc_hud screen UI](images/screen.jpg)
+<p align="center">
+  <img src="images/screen.jpg" alt="cc_hud running UI" width="42%" />
+  &nbsp;&nbsp;
+  <img src="images/screen-ota.jpg" alt="cc_hud OTA upgrade in progress" width="42%" />
+</p>
 
-*↑ Drop a photo of the assembled device showing the running UI here:
-`images/screen.jpg`*
+*Left: live HUD showing the active plan title + 5H/7D usage with reset
+countdown. Right: full-screen OTA progress takes over while a new firmware
+streams in over BLE — the device reboots into the new image on completion.*
 
 ---
 
@@ -278,13 +283,6 @@ cc_hud/
 ---
 
 ## Final assembly
-
-![cc_hud assembled](images/assembled.jpg)
-
-*↑ Drop a photo of the fully assembled device here: `images/assembled.jpg`.
-Suggested shot: case open showing the LCD on the screen PCB, ESP32 board
-in the middle, battery + TP4056 + boost module tucked behind, back cover
-nearby.*
 
 Step order:
 
