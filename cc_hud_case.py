@@ -25,8 +25,8 @@ the panel, leaving only the PCB depth inside the cavity):
                                        screen PCB — no standoffs)
     5.8  .. ~11    ESP32 components + USB-C body
     ~11  .. ~16    LiPo cell (~5 mm thick)
-    ~16  .. 53     TP4056 + MT3608 + slide switch + cabling
-    53   .. 55     back cover lip
+    ~16  .. 43     TP4056 + MT3608 + slide switch + cabling (~27 mm)
+    43   .. 45     back cover lip
 
 Internal width (40-2*2 = 36) accommodates the 35 mm battery plus a
 ~0.5 mm clearance per side. Internal height (58-2*2 = 54) gives the
@@ -40,7 +40,9 @@ from build123d import Align, Box, Pos
 # ── outer shell ─────────────────────────────────────────────────
 CASE_W = 40.0   # X — fits the 32 mm ESP32 board (upright) + walls
 CASE_H = 58.0   # Y — fits 52 mm battery + clearance + 4 mm walls
-CASE_D = 55.0   # Z — battery + power stack live behind the ESP32
+CASE_D = 45.0   # Z — shorter than v3 (was 55); still leaves ~30 mm
+                # behind the ESP32 board for battery + TP4056 + boost
+                # + switch + cabling
 WALL   = 2.0
 FRONT  = 2.7    # screen active glass (2.7 mm) embeds INSIDE the front
                 # panel cut-out; only the 1.5 mm PCB sits behind the
