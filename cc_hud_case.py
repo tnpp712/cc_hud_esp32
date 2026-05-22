@@ -17,11 +17,11 @@ Origin: geometric centre of the case footprint, +X right, +Y up
 Z layering:
     0    .. 2      front panel
     2    .. 6.2    screen module (4.2 mm: active + PCB)
-    6.2  .. 9.2    wire gap behind the screen PCB (3 mm)
-    9.2  .. 10.8   ESP32-S3 board PCB
-    10.8 .. ~16    ESP32 components + USB-C body
-    ~16  .. ~21    LiPo cell (~5 mm thick)
-    ~21  .. 53     TP4056 + MT3608 + slide switch + cabling (~32 mm slack)
+    6.2  .. 7.6    wire gap behind the screen PCB (1.4 mm — tightened)
+    7.6  .. 9.2    ESP32-S3 board PCB
+    9.2  .. ~14    ESP32 components + USB-C body
+    ~14  .. ~19    LiPo cell (~5 mm thick)
+    ~19  .. 53     TP4056 + MT3608 + slide switch + cabling (~34 mm slack)
     53   .. 55     back cover lip
 
 Internal width (40-2*2 = 36) accommodates the 35 mm battery plus a
@@ -52,19 +52,20 @@ SCREEN_PCB_H   = 44.0
 SCREEN_TOTAL_T = 4.2    # active + PCB combined
 SCREEN_PCB_T   = 1.5
 
-# Corner L-bracket hooks behind the four screen-PCB corners. Each hook
-# straddles the PCB X edge and the PCB Y edge from the inner-wall side
-# so the PCB is locked against the front panel from behind.
-HOOK_X       = 4.0
-HOOK_Y       = 8.0   # spans the 5 mm Y wall-to-PCB gap + 3 mm into the PCB
-HOOK_Z_THICK = 2.0
+# (Removed: the original 4 corner L-bracket hooks have been deleted at
+#  user request. The screen PCB now relies on the front panel pressing
+#  it from the front and the ESP32 board surface from behind to stay in
+#  place. If yours rattles in shipping, a 5 × 5 mm dab of foam or a
+#  drop of hot glue on each corner is enough.)
 
 
 # ── ESP32 board ─────────────────────────────────────────────────
 ESP_PCB_W = 32.0
 ESP_PCB_H = 45.0
 ESP_PCB_T = 1.6
-WIRE_GAP  = 3.0    # screen PCB back → ESP32 PCB front
+WIRE_GAP  = 1.4    # screen PCB back → ESP32 PCB front (was 3.0; user wants
+                   #   the columns minimal — physical standoff_h is therefore
+                   #   SCREEN_TOTAL_T (4.2) + WIRE_GAP (1.4) = 5.6 mm)
 
 STANDOFF_D     = 3.0
 STANDOFF_INSET = 1.5
@@ -113,22 +114,10 @@ def gen_step():
     usb_z = ESP_PCB_Z_BACK + USB_H / 2
     case -= Pos(0, usb_y, usb_z) * usb
 
-    # 5. Four corner L-bracket hooks behind the screen PCB. Each one is
-    #    flush with the inner wall on both X and Y, so it grabs the PCB
-    #    corner from the back and pins it against the front panel.
-    hook_x_center = INNER_W / 2 - HOOK_X / 2
-    hook_y_center = INNER_H / 2 - HOOK_Y / 2
-    hook_z_center = SCREEN_PCB_Z_BACK + HOOK_Z_THICK / 2
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            hook = Box(HOOK_X, HOOK_Y, HOOK_Z_THICK)
-            case += Pos(sx * hook_x_center,
-                        sy * hook_y_center,
-                        hook_z_center) * hook
-
-    # 6. ESP32 standoffs — four cylinders rising from the front inner
-    #    wall to the front face of the ESP32 board.
-    standoff_h = ESP_PCB_Z_FRONT - FRONT   # 7.2 mm
+    # 5. ESP32 standoffs — four cylinders rising from the front inner
+    #    wall to the front face of the ESP32 board. Shortened from the
+    #    previous 7.2 mm to 5.6 mm by tightening WIRE_GAP to 1.4 mm.
+    standoff_h = ESP_PCB_Z_FRONT - FRONT   # 5.6 mm
     for sx in (-1, 1):
         for sy in (-1, 1):
             cx = sx * (ESP_PCB_W / 2 - STANDOFF_INSET)
@@ -137,7 +126,7 @@ def gen_step():
                           align=(Align.CENTER, Align.CENTER, Align.MIN))
             case += Pos(cx, cy, FRONT) * so
 
-    # 7. Four feet hanging below the bottom face.
+    # 6. Four feet hanging below the bottom face.
     fy = -CASE_H / 2 - FOOT_H / 2
     for sx in (-1, 1):
         for sz in (0, 1):

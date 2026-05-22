@@ -121,12 +121,14 @@ Two STL/3MF parts, both parametric (`*.py` sources in repo root):
 
 | File | What | Outer size |
 |---|---|---|
-| `cc_hud_case.3mf` | Main shell — front panel + screen window + USB-C cut-out + 4 corner hooks + ESP32 standoffs + feet | 40 × 58 × 55 mm |
+| `cc_hud_case.3mf` | Main shell — front panel + screen window + USB-C cut-out + 4 ESP32 standoffs + feet | 40 × 58 × 55 mm |
 | `cc_hud_back_cover.3mf` | Drop-in lip-jointed back cover with pry-open notches | 40 × 58 × 5 mm |
 
 Screen is **portrait** — long edge along Y. Active area 33 × 35 mm
 (window cut into the front panel), screen module PCB 34 × 44 mm
-(positioned behind the panel, retained by four corner hooks).
+sandwiched between the front panel and the ESP32 board (no hooks; the
+front panel + ESP32 board hold it in place, a dab of foam or hot glue
+in each corner is the suggested capture if you want it locked).
 
 Internal layout (Z = depth, front panel at Z=0):
 
@@ -134,11 +136,11 @@ Internal layout (Z = depth, front panel at Z=0):
 |---|---|
 | 0 – 2 mm | Front panel |
 | 2 – 6.2 mm | Screen module (active + PCB, 4.2 mm combined) |
-| 6.2 – 9.2 mm | Wire gap behind the screen PCB |
-| 9.2 – 10.8 mm | ESP32-S3 board PCB |
-| 10.8 – ~16 mm | ESP32 components + USB-C body |
-| ~16 – ~21 mm | LiPo cell (35 × 52 × ~5 mm) |
-| ~21 – 53 mm | TP4056 + MT3608 + slide switch + cabling (~32 mm slack) |
+| 6.2 – 7.6 mm | Wire gap behind the screen PCB (tight, 1.4 mm) |
+| 7.6 – 9.2 mm | ESP32-S3 board PCB |
+| 9.2 – ~14 mm | ESP32 components + USB-C body |
+| ~14 – ~19 mm | LiPo cell (35 × 52 × ~5 mm) |
+| ~19 – 53 mm | TP4056 + MT3608 + slide switch + cabling (~34 mm slack) |
 | 53 – 55 mm | Back cover lip |
 
 To regenerate after editing a parameter:
