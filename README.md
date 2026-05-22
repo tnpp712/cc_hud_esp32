@@ -121,14 +121,16 @@ Two STL/3MF parts, both parametric (`*.py` sources in repo root):
 
 | File | What | Outer size |
 |---|---|---|
-| `cc_hud_case.3mf` | Main shell — front panel + screen window + USB-C cut-out + 4 ESP32 standoffs + feet | 40 × 58 × 55 mm |
-| `cc_hud_back_cover.3mf` | Drop-in lip-jointed back cover with pry-open notches | 40 × 58 × 5 mm |
+| `cc_hud_case.3mf` | Main shell — front panel + screen window + **side USB-C cut-out** + 4 ESP32 standoffs + feet | 51 × 58 × 55 mm |
+| `cc_hud_back_cover.3mf` | Drop-in lip-jointed back cover with pry-open notches | 51 × 58 × 5 mm |
 
 Screen is **portrait** — long edge along Y. Active area 33 × 35 mm
 (window cut into the front panel), screen module PCB 34 × 44 mm
-sandwiched between the front panel and the ESP32 board (no hooks; the
-front panel + ESP32 board hold it in place, a dab of foam or hot glue
-in each corner is the suggested capture if you want it locked).
+sandwiched between the front panel and the ESP32 board.
+
+USB-C exits the **right-hand side wall** (+X). The ESP32 board is laid
+sideways inside the case (long edge 45 mm along X, short edge 32 mm
+along Y) so its USB-C connector points naturally out of that side.
 
 Internal layout (Z = depth, front panel at Z=0):
 

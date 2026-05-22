@@ -35,16 +35,17 @@ from build123d import Align, Box, Cylinder, Pos
 
 
 # ── outer shell ─────────────────────────────────────────────────
-CASE_W = 40.0   # X — fits 35 mm battery + clearance + 4 mm walls
+CASE_W = 51.0   # X — fits the ESP32 board laid SIDEWAYS (long edge 45
+                # along X) so USB-C exits the right-hand side wall.
+                # Was 40 when the board was upright.
 CASE_H = 58.0   # Y — fits 52 mm battery + clearance + 4 mm walls
 CASE_D = 55.0   # Z — battery + power stack live behind the ESP32
 WALL   = 2.0
-FRONT  = 2.7    # bumped from 2.0 so the screen active glass (2.7 mm)
-                # embeds INSIDE the front panel cut-out, exposing only
-                # the PCB depth (1.5 mm) inside the cavity. That's what
-                # lets the standoffs be physically 1.4 mm short.
+FRONT  = 2.7    # screen active glass (2.7 mm) embeds INSIDE the front
+                # panel cut-out; only the 1.5 mm PCB sits behind the
+                # panel, leaving room for the 1.4 mm standoffs.
 
-INNER_W = CASE_W - 2 * WALL   # 36
+INNER_W = CASE_W - 2 * WALL   # 47
 INNER_H = CASE_H - 2 * WALL   # 54
 
 
@@ -63,19 +64,17 @@ SCREEN_PCB_T   = 1.5    # PCB only — active glass is hidden inside FRONT
 #  drop of hot glue on each corner is enough.)
 
 
-# ── ESP32 board ─────────────────────────────────────────────────
-ESP_PCB_W = 32.0
-ESP_PCB_H = 45.0
+# ── ESP32 board (laid SIDEWAYS so USB-C exits the side wall) ─────
+ESP_PCB_W = 45.0   # X — long edge of the board runs along X now
+ESP_PCB_H = 32.0   # Y — short edge along Y
 ESP_PCB_T = 1.6
 
 STANDOFF_D     = 3.0
 STANDOFF_H     = 1.4    # ← user-requested physical column height
-STANDOFF_INSET = -0.5   # negative = standoff centre sits just OUTSIDE the
-                        #   ESP32 PCB corner, so the standoff column does
-                        #   not collide with the screen PCB sitting in
-                        #   Z=FRONT..FRONT+SCREEN_PCB_T. The board corner
-                        #   still falls inside the standoff disc because
-                        #   the board corner is only 0.5 mm out.
+STANDOFF_INSET = 0.5    # standoff centre is 0.5 mm INSIDE each ESP32
+                        # corner. The standoff (X=±22, Y=±15.5) sits
+                        # outside the screen-PCB X edge (±17) so it
+                        # cannot collide with the screen PCB in Z.
 
 
 # ── USB-C cutout (top wall) ─────────────────────────────────────
@@ -117,14 +116,16 @@ def gen_step():
              align=(Align.CENTER, Align.CENTER, Align.MIN))
     case -= Pos(0, 0, -0.5) * sw
 
-    # 4. USB-C cutout through the top wall.
-    usb = Box(USB_W + USB_CLEARANCE,
-              WALL + 2.0,
+    # 4. USB-C cutout through the +X side wall (right-hand side when the
+    #    screen is facing you). The board's short edge with the USB-C
+    #    connector points along +X with the board laid sideways.
+    usb = Box(WALL + 2.0,
+              USB_W + USB_CLEARANCE,
               USB_H + USB_CLEARANCE,
               align=(Align.CENTER, Align.CENTER, Align.CENTER))
-    usb_y = CASE_H / 2 - WALL / 2
+    usb_x = CASE_W / 2 - WALL / 2
     usb_z = ESP_PCB_Z_BACK + USB_H / 2
-    case -= Pos(0, usb_y, usb_z) * usb
+    case -= Pos(usb_x, 0, usb_z) * usb
 
     # 5. ESP32 standoffs — four 1.4 mm-tall cylinders just outside each
     #    ESP32 board corner. Pushed slightly past the corner so the
