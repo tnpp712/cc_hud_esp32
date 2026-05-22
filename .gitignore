@@ -1,0 +1,44 @@
+# Private / Claude
+CLAUDE.md
+docs/
+.claude/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PlatformIO / firmware build
+firmware/.pio/
+firmware/.pioenvs/
+firmware/.piolibdeps/
+firmware/build/
+firmware/.vscode/
+*.o
+*.obj
+*.elf
+*.bin
+*.hex
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Secrets
+.env
+.env.*
+
+# Misc
+proxy/
+userdata/
+session/
+*_article
+*.docx
+*.doc
+*.xlsx
+*.csv
