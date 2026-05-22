@@ -25,10 +25,16 @@ namespace cc_hud {
 using QuotaWriteHandler        = std::function<void(const QuotaSnapshot& parsed)>;
 using ConnectionChangeHandler  = std::function<void(bool connected)>;
 
-// Initialise NimBLE, build the GATT layout, and start advertising. Must be
-// called from setup() exactly once.
+// Initialise NimBLE, build the quota GATT service, and configure advertising
+// metadata. DOES NOT start advertising — that's separated out so additional
+// services (e.g. OTA) can be registered before advertising goes live.
+// Call bleStartAdvertising() once all services have been added.
 void bleServerInit(const QuotaWriteHandler&       on_write,
                    const ConnectionChangeHandler& on_conn);
+
+// Begin BLE advertising. Must be called once, after every other service has
+// been registered onto the server returned by bleGetServer().
+void bleStartAdvertising();
 
 // True while at least one central is connected.
 bool bleIsConnected();
@@ -36,5 +42,16 @@ bool bleIsConnected();
 // Push a short ASCII status string to the State characteristic via notify.
 // Safe to call from any task. Strings longer than 20 chars are truncated.
 void bleNotifyState(const char* msg);
+
+}  // namespace cc_hud
+
+// Forward-declared in the global namespace to match NimBLE's headers.
+class NimBLEServer;
+
+namespace cc_hud {
+
+// Returns the underlying NimBLE server pointer after bleServerInit() has run.
+// Used by the OTA module to add a second GATT service onto the same server.
+NimBLEServer* bleGetServer();
 
 }  // namespace cc_hud

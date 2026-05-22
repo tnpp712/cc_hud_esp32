@@ -188,18 +188,29 @@ void bleServerInit(const QuotaWriteHandler&       on_write,
 
     service->start();
 
+    // Configure advertising metadata, but DON'T start it yet — the OTA module
+    // needs to register its service on the same GATT server first, and NimBLE
+    // does not allow service definitions to be added once advertising is up.
     NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
     adv->addServiceUUID(kBleServiceUuid);
     adv->setScanResponse(true);
     adv->setMinPreferred(0x06);
     adv->setMinPreferred(0x12);
 
+    Serial.println("[BLE] services registered, waiting for advertising start");
+}
+
+void bleStartAdvertising() {
     NimBLEDevice::startAdvertising();
     Serial.println("[BLE] adv started");
 }
 
 bool bleIsConnected() {
     return g_connected;
+}
+
+NimBLEServer* bleGetServer() {
+    return g_server;
 }
 
 void bleNotifyState(const char* msg) {

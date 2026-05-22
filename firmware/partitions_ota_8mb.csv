@@ -1,0 +1,12 @@
+# cc_hud OTA partition table for 8 MB flash.
+# Two equal-sized app slots (3 MB each) so we can OTA-upgrade by writing into
+# the inactive slot, then atomically switching otadata. NVS lives in its
+# standard location so quota state survives partition-table changes.
+#
+# Name,     Type, SubType,  Offset,   Size,     Flags
+nvs,        data, nvs,      0x9000,   0x5000,
+otadata,    data, ota,      0xE000,   0x2000,
+app0,       app,  ota_0,    0x10000,  0x300000,
+app1,       app,  ota_1,    0x310000, 0x300000,
+spiffs,     data, spiffs,   0x610000, 0x1E0000,
+coredump,   data, coredump, 0x7F0000, 0x10000,

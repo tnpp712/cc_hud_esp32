@@ -14,6 +14,7 @@
 #include "ble_server.h"
 #include "config.h"
 #include "display.h"
+#include "ota_server.h"
 #include "persistence.h"
 
 namespace cc_hud {
@@ -25,8 +26,17 @@ QuotaSnapshot g_quota;
 volatile bool g_redraw_pending = true;
 volatile bool g_conn_pending   = false;
 volatile bool g_conn_state     = false;
+volatile bool g_alert_pending  = false;  // set true when a 5h/7d crossing >= 95% fired
 
 uint32_t g_last_footer_tick = 0;
+
+// Compute percent (mirrors the helper in display.cpp; keeping it local avoids
+// pulling display internals into the BLE callback path).
+static uint8_t computePct(uint16_t used, uint16_t limit) {
+    if (limit == 0) return 0;
+    const uint32_t pct = (static_cast<uint32_t>(used) * 100u) / limit;
+    return pct > 100u ? 100u : static_cast<uint8_t>(pct);
+}
 
 // --------------------------------------------------------------- callbacks --
 //
@@ -34,12 +44,54 @@ uint32_t g_last_footer_tick = 0;
 // snapshot, persist to NVS, flip the redraw flag — the main loop does the
 // actual display work.
 void onQuotaWrite(const QuotaSnapshot& parsed) {
+    // Carry the alert flags forward from the previous snapshot, then update
+    // them based on the new percentages. A flag latches true when we cross
+    // the threshold (we flash once), and clears when we drop back below.
+    QuotaSnapshot next;
+    {
+        portENTER_CRITICAL(&g_lock);
+        const bool prev_alerted_5h = g_quota.alerted_5h;
+        const bool prev_alerted_7d = g_quota.alerted_7d;
+        portEXIT_CRITICAL(&g_lock);
+
+        next = parsed;
+        next.alerted_5h = prev_alerted_5h;
+        next.alerted_7d = prev_alerted_7d;
+    }
+
+    bool need_flash = false;
+    if (next.mode == kSnapshotModeSubscription) {
+        const uint8_t pct_5h = computePct(next.used_5h, next.limit_5h);
+        const uint8_t pct_7d = computePct(next.used_7d, next.limit_7d);
+
+        if (pct_5h < kAlertThresholdPct) next.alerted_5h = false;
+        if (pct_7d < kAlertThresholdPct) next.alerted_7d = false;
+
+        if (pct_5h >= kAlertThresholdPct && !next.alerted_5h) {
+            next.alerted_5h = true;
+            need_flash = true;
+            Serial.printf("[ALERT] 5H crossed %u%% (now %u%%)\n",
+                          (unsigned)kAlertThresholdPct, (unsigned)pct_5h);
+        }
+        if (pct_7d >= kAlertThresholdPct && !next.alerted_7d) {
+            next.alerted_7d = true;
+            need_flash = true;
+            Serial.printf("[ALERT] 7D crossed %u%% (now %u%%)\n",
+                          (unsigned)kAlertThresholdPct, (unsigned)pct_7d);
+        }
+    } else {
+        // API mode has no notion of % usage — never alert.
+        next.alerted_5h = false;
+        next.alerted_7d = false;
+    }
+
     portENTER_CRITICAL(&g_lock);
-    g_quota          = parsed;
+    g_quota          = next;
     g_redraw_pending = true;
+    if (need_flash) g_alert_pending = true;
     portEXIT_CRITICAL(&g_lock);
 
-    if (persistenceSave(parsed)) {
+    if (persistenceSave(next)) {
         Serial.println("[NVS] saved");
     } else {
         Serial.println("[NVS] save FAILED");
@@ -93,8 +145,14 @@ void setup() {
     cc_hud::displayRender(view, /*full_redraw=*/true);
     Serial.println("[TFT] initial render done");
 
-    // Start the BLE GATT server and begin advertising.
+    // Build BLE state in three steps so NimBLE's "all services must exist
+    // before advertising starts" rule is honored:
+    //   1. bleServerInit  — quota service + chars + advertising metadata
+    //   2. otaServerInit  — OTA service + chars on the same server
+    //   3. bleStartAdvertising — finally make us discoverable
     cc_hud::bleServerInit(cc_hud::onQuotaWrite, cc_hud::onConnChange);
+    cc_hud::otaServerInit(cc_hud::bleGetServer());
+    cc_hud::bleStartAdvertising();
 
     cc_hud::g_last_footer_tick = millis();
     Serial.println("[BOOT] setup done");
@@ -103,6 +161,7 @@ void setup() {
 void loop() {
     bool need_redraw = false;
     bool need_conn   = false;
+    bool need_alert  = false;
     bool conn_state  = false;
     cc_hud::QuotaSnapshot snap;
 
@@ -117,22 +176,44 @@ void loop() {
         need_conn                  = true;
         cc_hud::g_conn_pending     = false;
     }
+    if (cc_hud::g_alert_pending) {
+        need_alert                 = true;
+        cc_hud::g_alert_pending    = false;
+    }
     portEXIT_CRITICAL(&cc_hud::g_lock);
 
-    if (need_redraw) {
+    // Threshold alert first — it blocks ~5s and then forces a full redraw.
+    if (need_alert) {
+        Serial.println("[ALERT] flashing screen red 5s");
+        cc_hud::displayFlashAlert();
+        need_redraw = true;  // restore HUD content after the flash
+        if (snap.last_update_ms == 0) {
+            // If we never received any quota, fall back to current g_quota.
+            portENTER_CRITICAL(&cc_hud::g_lock);
+            snap = cc_hud::g_quota;
+            portEXIT_CRITICAL(&cc_hud::g_lock);
+        }
+    }
+
+    // When an OTA is in progress the OTA task owns the screen — skip all
+    // HUD-side rendering until the device reboots into the new image.
+    const bool ota_active = cc_hud::displayIsOtaActive();
+
+    if (need_redraw && !ota_active) {
         cc_hud::DisplayView v;
         v.quota         = snap;
         v.ble_connected = conn_state || cc_hud::bleIsConnected();
         v.now_ms        = static_cast<uint64_t>(millis());
-        cc_hud::displayRender(v);
+        cc_hud::displayRender(v, /*full_redraw=*/need_alert);
     }
-    if (need_conn) {
+    if (need_conn && !ota_active) {
         cc_hud::displayUpdateConnection(conn_state);
     }
 
     // Footer freshness tick.
     const uint32_t now = millis();
-    if (now - cc_hud::g_last_footer_tick >= cc_hud::kFooterRefreshMs) {
+    if (!ota_active &&
+        now - cc_hud::g_last_footer_tick >= cc_hud::kFooterRefreshMs) {
         cc_hud::g_last_footer_tick = now;
         portENTER_CRITICAL(&cc_hud::g_lock);
         cc_hud::QuotaSnapshot s = cc_hud::g_quota;

@@ -76,6 +76,8 @@ constexpr const char* kNvsKeyMode    = "mode";
 constexpr const char* kNvsKeyCostU   = "cost_uusd";   // cost in micro-USD
 constexpr const char* kNvsKeyDurS    = "dur_s";
 constexpr const char* kNvsKeyTitle   = "title";
+constexpr const char* kNvsKey5hAlert = "5h_alerted"; // bool: already flashed?
+constexpr const char* kNvsKey7dAlert = "7d_alerted";
 
 // ---------------------------------------------------------------------------
 // Display geometry and color palette. 16-bit RGB565 values.
@@ -111,6 +113,14 @@ constexpr uint16_t kColorDotLink  = 0x07E0;  // green when connected
 // Thresholds for color tiers, in percent.
 constexpr uint8_t kThreshGreenMax  = 60;   // 0..60 inclusive -> green
 constexpr uint8_t kThreshYellowMax = 84;   // 61..84         -> yellow ( >=85 red )
+
+// One-shot threshold-crossing alert. When 5H or 7D usage first crosses
+// kAlertThresholdPct, the firmware flashes the screen red for a few cycles.
+// The "alerted" flag is persisted in NVS so we don't re-flash every push;
+// it resets when the percentage drops back below the threshold.
+constexpr uint8_t  kAlertThresholdPct    = 95;
+constexpr uint8_t  kAlertFlashCycles     = 5;     // on+off pairs
+constexpr uint32_t kAlertFlashIntervalMs = 500;   // half-period
 
 // Staleness threshold (minutes) before footer turns red.
 constexpr uint32_t kStaleThresholdMin = 5;

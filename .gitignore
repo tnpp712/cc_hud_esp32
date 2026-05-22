@@ -44,3 +44,5 @@ session/
 *.doc
 *.xlsx
 *.csv
+# Exception: hardware partition tables are firmware source-of-truth.
+!firmware/partitions_ota_8mb.csv

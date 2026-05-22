@@ -39,6 +39,11 @@ struct QuotaSnapshot {
     uint32_t cost_micro_usd = 0;  // 1_000_000 = $1.00
     uint32_t duration_s     = 0;  // session duration in seconds
 
+    // One-shot threshold alert state — true after we've already flashed for
+    // this 95%+ crossing. Reset to false when the percentage drops below.
+    bool alerted_5h = false;
+    bool alerted_7d = false;
+
     // Monotonic millis() captured at the moment of the last successful write.
     // 0 means "no quota has ever been received" — treat as a cold boot.
     uint64_t last_update_ms = 0;

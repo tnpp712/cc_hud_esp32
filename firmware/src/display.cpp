@@ -516,4 +516,104 @@ void displayUpdateConnection(bool connected) {
     g_last.header_drawn  = true;
 }
 
+void displayFlashAlert() {
+    for (uint8_t i = 0; i < kAlertFlashCycles; ++i) {
+        g_tft.fillScreen(kColorRed);
+        delay(kAlertFlashIntervalMs);
+        g_tft.fillScreen(kColorBg);
+        delay(kAlertFlashIntervalMs);
+    }
+    // Invalidate the cache so the next displayRender repaints everything.
+    g_last = LastDrawnState{};
+}
+
+// ============================================================ OTA mode ===
+//
+// While an OTA is in progress (the BLE OTA task is streaming firmware into
+// the inactive flash slot) we take over the screen with a big progress
+// readout. displayRender / displayTickFooter become no-ops via the
+// `g_ota_active` flag so the HUD doesn't overpaint us.
+//
+// Layout (centered):
+//   y=30   "OTA UPDATE" (bold 12pt)
+//   y=110  "<PCT>%"     (bold 24pt, green)
+//   y=160  progress bar (kBarHeight*2 tall)
+//   y=210  "<received> / <total> B" (9pt muted)
+
+namespace {
+volatile bool g_ota_active   = false;
+int16_t       g_ota_last_pct = -1;
+
+void drawOtaFrame(uint32_t received, uint32_t total, int16_t pct) {
+    char buf[40];
+
+    // Header bar.
+    g_tft.fillRect(0, 0, kScreenWidth, 50, kColorBg);
+    printAt("OTA UPDATE",
+            kRowMargin, 30, kColorFg, &FreeSansBold12pt7b);
+
+    // Big percentage, centered.
+    std::snprintf(buf, sizeof(buf), "%d%%", static_cast<int>(pct));
+    g_tft.setFont(&FreeSansBold24pt7b);
+    int16_t  x1, y1;
+    uint16_t w, h;
+    g_tft.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
+    g_tft.fillRect(0, 80, kScreenWidth, 50, kColorBg);
+    g_tft.setCursor((kScreenWidth - static_cast<int16_t>(w)) / 2, 120);
+    g_tft.setTextColor(kColorGreen);
+    g_tft.print(buf);
+
+    // Progress bar.
+    const int16_t bar_x = 20;
+    const int16_t bar_y = 160;
+    const int16_t bar_w = kScreenWidth - 40;
+    const int16_t bar_h = kBarHeight * 2;
+    g_tft.fillRect(bar_x, bar_y, bar_w, bar_h, kColorBarTrack);
+    const int16_t fill_w =
+        static_cast<int16_t>((static_cast<int32_t>(bar_w) * pct) / 100);
+    if (fill_w > 0) {
+        g_tft.fillRect(bar_x, bar_y, fill_w, bar_h, kColorGreen);
+    }
+    g_tft.drawRect(bar_x, bar_y, bar_w, bar_h, kColorMuted);
+
+    // Bytes counter.
+    std::snprintf(buf, sizeof(buf), "%u / %u B",
+                  static_cast<unsigned>(received),
+                  static_cast<unsigned>(total));
+    g_tft.fillRect(0, 200, kScreenWidth, 30, kColorBg);
+    g_tft.setFont(&FreeSans9pt7b);
+    g_tft.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
+    g_tft.setCursor((kScreenWidth - static_cast<int16_t>(w)) / 2, 220);
+    g_tft.setTextColor(kColorMuted);
+    g_tft.print(buf);
+}
+}  // anon namespace
+
+void displayBeginOta() {
+    g_ota_active   = true;
+    g_ota_last_pct = -1;
+    g_tft.fillScreen(kColorBg);
+    drawOtaFrame(0, 1, 0);
+}
+
+void displayOtaProgress(uint32_t received, uint32_t total) {
+    if (!g_ota_active) {
+        // First call without an explicit begin — set up the screen first.
+        displayBeginOta();
+    }
+    if (total == 0) return;
+    int16_t pct = static_cast<int16_t>(
+        (static_cast<uint64_t>(received) * 100ULL) / total);
+    if (pct > 100) pct = 100;
+    if (pct == g_ota_last_pct) {
+        return;  // cheap path: nothing to redraw at this granularity
+    }
+    g_ota_last_pct = pct;
+    drawOtaFrame(received, total, pct);
+}
+
+bool displayIsOtaActive() {
+    return g_ota_active;
+}
+
 }  // namespace cc_hud

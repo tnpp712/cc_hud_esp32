@@ -41,6 +41,8 @@ bool persistenceLoad(QuotaSnapshot& out) {
     out.reset_in_s_7d  = g_prefs.getULong(kNvsKey7dReset,  0);
     out.cost_micro_usd = g_prefs.getULong(kNvsKeyCostU,    0);
     out.duration_s     = g_prefs.getULong(kNvsKeyDurS,     0);
+    out.alerted_5h     = g_prefs.getBool(kNvsKey5hAlert,   false);
+    out.alerted_7d     = g_prefs.getBool(kNvsKey7dAlert,   false);
     out.last_update_ms = g_prefs.getULong64(kNvsKeyTs,     kTsUnset);
     // Title — falls back to "CC HUD" if no key on first boot.
     String t = g_prefs.getString(kNvsKeyTitle, "CC HUD");
@@ -66,6 +68,8 @@ bool persistenceSave(const QuotaSnapshot& snap) {
     ok &= g_prefs.putULong(kNvsKey7dReset,  snap.reset_in_s_7d)  == sizeof(uint32_t);
     ok &= g_prefs.putULong(kNvsKeyCostU,    snap.cost_micro_usd) == sizeof(uint32_t);
     ok &= g_prefs.putULong(kNvsKeyDurS,     snap.duration_s)     == sizeof(uint32_t);
+    ok &= g_prefs.putBool(kNvsKey5hAlert,   snap.alerted_5h);
+    ok &= g_prefs.putBool(kNvsKey7dAlert,   snap.alerted_7d);
     ok &= g_prefs.putULong64(kNvsKeyTs,     snap.last_update_ms) == sizeof(uint64_t);
     // putString returns the byte count written including the null terminator.
     ok &= g_prefs.putString(kNvsKeyTitle,   snap.title)          > 0;

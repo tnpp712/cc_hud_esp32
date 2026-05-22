@@ -41,4 +41,24 @@ void displayTickFooter(const QuotaSnapshot& quota, uint64_t now_ms);
 // from BLE callbacks.
 void displayUpdateConnection(bool connected);
 
+// One-shot red-flash alert. Blocks the calling task for
+// `kAlertFlashCycles * 2 * kAlertFlashIntervalMs` (~5 s by default), flashing
+// the whole screen between red and the normal background. After it returns,
+// the caller must invoke `displayRender(view, /*full_redraw=*/true)` to
+// restore the normal HUD content.
+void displayFlashAlert();
+
+// Mark OTA mode active and paint the initial full-screen OTA frame. While
+// OTA is in progress, displayRender() / displayTickFooter() become no-ops
+// so the OTA screen isn't overwritten. The device reboots on OTA end, so
+// there's no explicit "leave OTA mode" — a power-cycle restores the HUD.
+void displayBeginOta();
+// Update the on-screen OTA progress. Called from the BLE OTA task each
+// time a chunk is written; cheap on no-op when the integer percentage
+// hasn't changed since the previous call.
+void displayOtaProgress(uint32_t received, uint32_t total);
+// Returns true while OTA-mode is active (between displayBeginOta() and the
+// device's reboot). Callers may use this to skip their own renders.
+bool displayIsOtaActive();
+
 }  // namespace cc_hud
