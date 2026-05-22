@@ -1,149 +1,90 @@
-// main.cpp
-// Top-level firmware for cc_hud. Glues persistence, display, and the BLE
-// GATT server together via a small state machine:
-//
-//   setup():    init serial, init TFT, load last quota from NVS, init NimBLE,
-//               start advertising, render the loaded quota.
-//   loop():     every kFooterRefreshMs, refresh the footer (freshness clock)
-//               and, if a BLE write set the redraw flag, re-render rows.
-//
-// All shared state lives at file scope (statically allocated). The BLE
-// callbacks run on the NimBLE task; they only flip a couple of `volatile`
-// flags and copy the parsed snapshot into the shared `g_quota` struct under
-// a small critical section guarded by `portENTER_CRITICAL`.
+// Minimal ST7789 hello-world for cc_hud, using Adafruit_ST7789 (not TFT_eSPI).
+// Explicit SPI bus + pin selection so we can see exactly what's happening.
+// Target: ESP32-S3R8 (8MB PSRAM, but disabled here) + 1.54" 240x240 IPS ST7789.
 
 #include <Arduino.h>
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
 
-#include "ble_server.h"
-#include "config.h"
-#include "display.h"
-#include "persistence.h"
+// Board pin (silkscreen) → ESP32-S3 GPIO
+constexpr int8_t PIN_MOSI = 38;  // D11 — SDA
+constexpr int8_t PIN_SCK  = 48;  // D13 — SCL
+constexpr int8_t PIN_CS   = 21;  // D10 — CS (silkscreen "SC")
+constexpr int8_t PIN_DC   = 10;  // D7  — DC
+constexpr int8_t PIN_RST  = 17;  // D8  — RES
+constexpr int8_t PIN_BL   = 18;  // D9  — BLK
 
-using namespace cc_hud;
+// ESP32-S3 has SPI2 (HSPI) and SPI3 (FSPI) freely available.
+// Force SPI2 (HSPI) so SPI3 stays free for anything else later.
+SPIClass spi(HSPI);
+Adafruit_ST7789 tft(&spi, PIN_CS, PIN_DC, PIN_RST);
 
-namespace {
-
-// Authoritative in-memory quota snapshot. Mutated by the BLE write callback
-// and read by loop()/display.
-QuotaSnapshot g_quota;
-
-// Critical-section guard for g_quota / g_pending_redraw. NimBLE runs on a
-// different FreeRTOS task than loop(), so we must protect every access.
-portMUX_TYPE g_state_mux = portMUX_INITIALIZER_UNLOCKED;
-
-// Set by the BLE write callback; cleared by loop() once rendered.
-volatile bool g_pending_redraw = true;
-
-// Last BLE-connection state surfaced to the UI thread.
-volatile bool g_pending_conn_state    = false;
-volatile bool g_have_pending_conn_evt = false;
-
-// Cadence tracker for the periodic footer refresh.
-uint32_t g_last_footer_tick_ms = 0;
-
-// ------------------------------------------------------------- BLE handlers
-void onQuotaWrite(const QuotaSnapshot& parsed) {
-    // Copy parsed snapshot into shared state under the mux, then persist.
-    portENTER_CRITICAL(&g_state_mux);
-    g_quota          = parsed;
-    g_pending_redraw = true;
-    portEXIT_CRITICAL(&g_state_mux);
-
-    // Persistence runs outside the critical section (NVS may block briefly).
-    if (persistenceSave(parsed)) {
-        Serial.println("[NVS] saved");
-    } else {
-        Serial.println("[NVS] save FAILED");
-    }
+static void log_chip_info() {
+  Serial.printf("[CHIP] model=%s rev=%d cores=%d cpu=%lu Hz\n",
+                ESP.getChipModel(), (int)ESP.getChipRevision(),
+                (int)ESP.getChipCores(), (unsigned long)ESP.getCpuFreqMHz() * 1000000UL);
+  Serial.printf("[CHIP] flash=%lu MB psram=%lu bytes free_heap=%lu\n",
+                (unsigned long)(ESP.getFlashChipSize() / (1024UL * 1024UL)),
+                (unsigned long)ESP.getPsramSize(),
+                (unsigned long)ESP.getFreeHeap());
 }
 
-void onConnectionChange(bool connected) {
-    portENTER_CRITICAL(&g_state_mux);
-    g_pending_conn_state    = connected;
-    g_have_pending_conn_evt = true;
-    portEXIT_CRITICAL(&g_state_mux);
-}
-
-}  // namespace
-
-// ---------------------------------------------------------------- arduino --
 void setup() {
-    Serial.begin(115200);
-    // Give the USB-CDC serial a moment to enumerate on Nano ESP32 (not all
-    // hosts open the port instantly).
-    delay(200);
+  Serial.begin(115200);
+  delay(2500);  // wait for USB CDC enumeration
+  Serial.println();
+  Serial.println("[BOOT] cc_hud — Adafruit_ST7789 hello-world");
+  log_chip_info();
 
-    displayInit();
+  // Manual backlight first (so we can see something even if SPI fails)
+  pinMode(PIN_BL, OUTPUT);
+  digitalWrite(PIN_BL, HIGH);
+  Serial.println("[BL] HIGH (backlight should be on now — look at the panel)");
 
-    if (persistenceLoad(g_quota)) {
-        Serial.println("[NVS] load ok");
-    } else {
-        Serial.println("[NVS] load empty (first boot)");
-    }
-    Serial.printf("[BOOT] last quota %u/%u %u/%u\n",
-                  g_quota.used_5h,  g_quota.limit_5h,
-                  g_quota.used_7d,  g_quota.limit_7d);
+  Serial.printf("[SPI] begin SCK=%d MISO=-1 MOSI=%d CS=%d\n",
+                PIN_SCK, PIN_MOSI, PIN_CS);
+  spi.begin(PIN_SCK, /*MISO*/ -1, PIN_MOSI, PIN_CS);
+  Serial.println("[SPI] begin done");
 
-    bleServerInit(onQuotaWrite, onConnectionChange);
+  Serial.println("[TFT] init(240, 240, SPI_MODE0)...");
+  tft.init(240, 240, SPI_MODE0);
+  Serial.println("[TFT] init done");
 
-    // Force a full repaint of the freshly-booted view.
-    DisplayView view;
-    view.quota         = g_quota;
-    view.ble_connected = false;
-    view.now_ms        = static_cast<uint64_t>(millis());
-    displayRender(view, /*full_redraw=*/true);
+  // Slow clock for safety while bringing up — 10 MHz is plenty for 1.54"
+  tft.setSPISpeed(10 * 1000 * 1000);
 
-    g_last_footer_tick_ms = millis();
-    g_pending_redraw      = false;
+  Serial.println("[TFT] setRotation(0)");
+  tft.setRotation(0);
+
+  Serial.println("[TFT] fillScreen RED");
+  tft.fillScreen(ST77XX_RED);
+  delay(600);
+
+  Serial.println("[TFT] fillScreen GREEN");
+  tft.fillScreen(ST77XX_GREEN);
+  delay(600);
+
+  Serial.println("[TFT] fillScreen BLUE");
+  tft.fillScreen(ST77XX_BLUE);
+  delay(600);
+
+  Serial.println("[TFT] BLACK + 'HELLO'");
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextSize(4);
+  tft.setCursor(20, 90);
+  tft.print("HELLO");
+
+  Serial.println("[DONE] entering loop()");
 }
 
 void loop() {
-    // 1) Handle any pending connection-state change quickly (header dot).
-    bool conn_evt_pending = false;
-    bool conn_state       = false;
-    portENTER_CRITICAL(&g_state_mux);
-    if (g_have_pending_conn_evt) {
-        conn_evt_pending        = true;
-        conn_state              = g_pending_conn_state;
-        g_have_pending_conn_evt = false;
-    }
-    portEXIT_CRITICAL(&g_state_mux);
-    if (conn_evt_pending) {
-        displayUpdateConnection(conn_state);
-    }
-
-    // 2) Handle a pending quota redraw (BLE write occurred).
-    bool          do_redraw = false;
-    QuotaSnapshot snapshot;
-    portENTER_CRITICAL(&g_state_mux);
-    if (g_pending_redraw) {
-        snapshot         = g_quota;
-        g_pending_redraw = false;
-        do_redraw        = true;
-    }
-    portEXIT_CRITICAL(&g_state_mux);
-
-    if (do_redraw) {
-        DisplayView view;
-        view.quota         = snapshot;
-        view.ble_connected = bleIsConnected();
-        view.now_ms        = static_cast<uint64_t>(millis());
-        displayRender(view, /*full_redraw=*/false);
-        g_last_footer_tick_ms = millis();
-    }
-
-    // 3) Periodic footer refresh (freshness clock).
-    const uint32_t now = millis();
-    if ((now - g_last_footer_tick_ms) >= kFooterRefreshMs) {
-        g_last_footer_tick_ms = now;
-        QuotaSnapshot footer_snap;
-        portENTER_CRITICAL(&g_state_mux);
-        footer_snap = g_quota;
-        portEXIT_CRITICAL(&g_state_mux);
-        displayTickFooter(footer_snap, static_cast<uint64_t>(now));
-    }
-
-    // Cooperative yield. NimBLE runs on its own task but we still want to
-    // give FreeRTOS a chance to schedule other work.
-    delay(20);
+  static uint32_t last = 0;
+  if (millis() - last >= 1000) {
+    last = millis();
+    Serial.printf("[tick] %u s, heap=%lu\n",
+                  (unsigned)(millis() / 1000),
+                  (unsigned long)ESP.getFreeHeap());
+  }
 }
