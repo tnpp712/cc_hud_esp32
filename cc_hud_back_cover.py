@@ -15,12 +15,12 @@ from build123d import Align, Box, Pos
 
 
 # ── must match cc_hud_case.py ───────────────────────────────────
-CASE_W = 48.0
-CASE_H = 56.0
+CASE_W = 40.0
+CASE_H = 58.0
 WALL   = 2.0
 
-INNER_W = CASE_W - 2 * WALL   # 44
-INNER_H = CASE_H - 2 * WALL   # 52
+INNER_W = CASE_W - 2 * WALL   # 36
+INNER_H = CASE_H - 2 * WALL   # 54
 
 
 # ── cover geometry ──────────────────────────────────────────────
@@ -28,15 +28,15 @@ COVER_THICK = 2.0
 LIP_DEPTH   = 3.0
 LIP_CLEAR   = 0.2
 
-LIP_W = INNER_W - 2 * LIP_CLEAR   # 43.6
-LIP_H = INNER_H - 2 * LIP_CLEAR   # 51.6
+LIP_W = INNER_W - 2 * LIP_CLEAR   # 35.6
+LIP_H = INNER_H - 2 * LIP_CLEAR   # 53.6
 
 
 # ── pry-open notches ────────────────────────────────────────────
 NOTCH_W       = 6.0
 NOTCH_DEPTH_Y = 1.2
 NOTCH_DEPTH_Z = 0.8
-NOTCH_OFFSET  = 10.0   # bigger case → spread the notches further apart
+NOTCH_OFFSET  = 8.0    # back cover narrower now (40 wide), pull notches in
 
 
 def gen_step():

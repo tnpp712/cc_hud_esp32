@@ -1,30 +1,15 @@
 """
-cc_hud enclosure — parametric build123d source (v2).
+cc_hud enclosure — parametric build123d source (v2, portrait).
 
-v2 changes vs v1:
-  • Screen dimensions remeasured:
-        - active area     35 × 33  (was 32.7 × 35.3 in v1)
-        - module PCB      44 × 34  (was 33 × 44 — 90° rotation, the
-                                    layout has been re-laid-out)
-        - combined thickness 4.2 mm (active + PCB combined; this module
-                                     has no separate header-pin
-                                     protrusion, so the v1 HEADER_HEIGHT
-                                     is gone)
-  • Case grows to 48 × 56 × 55 mm. Depth bumped from v1's 30 mm because
-    a 35 × 52 LiPo cell + TP4056 + MT3608 + slide switch + cabling do
-    not all fit in 30 mm of Z. The CASE_D parameter is now generous so
-    you have plenty of room to tuck everything in.
-  • Screen-PCB retention switched from 4 corner hooks to two full-width
-    beams across the top and bottom of the screen PCB. The PCB X edge
-    is now flush with the inner wall, so there's no room for corner
-    hooks; the beams cross the PCB Y edge from the wall side instead.
-  • Standoff redesigned: WIRE_GAP between the screen PCB back face and
-    the ESP32 PCB front face is 3 mm (down from v1's 5 mm), so the
-    physical standoff height is 4.2 mm (screen) + 3 mm (gap) = 7.2 mm
-    (down from v1's 8.6 mm). The "4 mm column too tall" feedback was
-    really about overall depth + standoff together; with the bigger
-    case, even a 7.2 mm standoff leaves ~46 mm of Z behind the ESP32
-    board for battery + power electronics.
+Screen is portrait (tall) — long edge runs along Y, short edge along X.
+
+Dimensions (mm):
+  Screen active area :   33 × 35  (X × Y, short × long)
+  Screen module PCB  :   34 × 44
+  Combined thickness :    4.2 mm (active + PCB, no separate header pins)
+  ESP32-S3 board PCB :   32 × 45
+  LiPo cell          :   35 × 52  (~5 mm thick)
+  Case outer         :   40 × 58 × 55  (X × Y × Z)
 
 Origin: geometric centre of the case footprint, +X right, +Y up
 (USB-C side), +Z back. Front face at Z=0, open back at Z=CASE_D.
@@ -36,38 +21,43 @@ Z layering:
     9.2  .. 10.8   ESP32-S3 board PCB
     10.8 .. ~16    ESP32 components + USB-C body
     ~16  .. ~21    LiPo cell (~5 mm thick)
-    ~21 .. 53      TP4056 + MT3608 + switch + cabling (~32 mm of slack)
+    ~21  .. 53     TP4056 + MT3608 + slide switch + cabling (~32 mm slack)
     53   .. 55     back cover lip
+
+Internal width (40-2*2 = 36) accommodates the 35 mm battery plus a
+~0.5 mm clearance per side. Internal height (58-2*2 = 54) gives the
+52 mm battery a 1 mm clearance per side and leaves 4.5 mm above/below
+the 45 mm ESP32 board for cable routing.
 """
 
 from build123d import Align, Box, Cylinder, Pos
 
 
 # ── outer shell ─────────────────────────────────────────────────
-CASE_W = 48.0   # X — fits 44 mm screen PCB + 4 mm walls
-CASE_H = 56.0   # Y — fits 52 mm LiPo cell + 4 mm walls
-CASE_D = 55.0   # Z — generous depth for battery + power module stack
+CASE_W = 40.0   # X — fits 35 mm battery + clearance + 4 mm walls
+CASE_H = 58.0   # Y — fits 52 mm battery + clearance + 4 mm walls
+CASE_D = 55.0   # Z — battery + power stack live behind the ESP32
 WALL   = 2.0
 FRONT  = 2.0
 
-INNER_W = CASE_W - 2 * WALL   # 44
-INNER_H = CASE_H - 2 * WALL   # 52
+INNER_W = CASE_W - 2 * WALL   # 36
+INNER_H = CASE_H - 2 * WALL   # 54
 
 
-# ── screen ──────────────────────────────────────────────────────
-SCREEN_W       = 35.0   # active area, X
-SCREEN_H       = 33.0   # active area, Y
-SCREEN_PCB_W   = 44.0
-SCREEN_PCB_H   = 34.0
+# ── screen (portrait) ───────────────────────────────────────────
+SCREEN_W       = 33.0   # active area, X (short edge)
+SCREEN_H       = 35.0   # active area, Y (long edge)
+SCREEN_PCB_W   = 34.0
+SCREEN_PCB_H   = 44.0
 SCREEN_TOTAL_T = 4.2    # active + PCB combined
 SCREEN_PCB_T   = 1.5
 
-# Retention beams behind the screen PCB's top and bottom edges.
-BEAM_X_SIZE   = SCREEN_PCB_W
-BEAM_OVERLAP  = 2.0      # how far the beam reaches into the PCB outline
-BEAM_Y_SIZE   = (INNER_H - SCREEN_PCB_H) / 2 + BEAM_OVERLAP   # 11
-BEAM_Z_THICK  = 2.0
-BEAM_Y_CENTER = INNER_H / 2 - BEAM_Y_SIZE / 2                  # 20.5
+# Corner L-bracket hooks behind the four screen-PCB corners. Each hook
+# straddles the PCB X edge and the PCB Y edge from the inner-wall side
+# so the PCB is locked against the front panel from behind.
+HOOK_X       = 4.0
+HOOK_Y       = 8.0   # spans the 5 mm Y wall-to-PCB gap + 3 mm into the PCB
+HOOK_Z_THICK = 2.0
 
 
 # ── ESP32 board ─────────────────────────────────────────────────
@@ -95,8 +85,8 @@ FOOT_INSET = 3.0
 
 # ── derived Z positions ─────────────────────────────────────────
 SCREEN_PCB_Z_BACK = FRONT + SCREEN_TOTAL_T          # 6.2
-ESP_PCB_Z_FRONT   = SCREEN_PCB_Z_BACK + WIRE_GAP    # 7.2
-ESP_PCB_Z_BACK    = ESP_PCB_Z_FRONT + ESP_PCB_T     # 8.8
+ESP_PCB_Z_FRONT   = SCREEN_PCB_Z_BACK + WIRE_GAP    # 9.2
+ESP_PCB_Z_BACK    = ESP_PCB_Z_FRONT + ESP_PCB_T     # 10.8
 
 
 def gen_step():
@@ -104,7 +94,7 @@ def gen_step():
     case = Box(CASE_W, CASE_H, CASE_D,
                align=(Align.CENTER, Align.CENTER, Align.MIN))
 
-    # 2. Inner cavity. Overshoots past the back so the back stays open.
+    # 2. Inner cavity (overshoots past the back so the back stays open).
     cavity = Box(INNER_W, INNER_H, CASE_D - FRONT + 1.0,
                  align=(Align.CENTER, Align.CENTER, Align.MIN))
     case -= Pos(0, 0, FRONT) * cavity
@@ -123,19 +113,21 @@ def gen_step():
     usb_z = ESP_PCB_Z_BACK + USB_H / 2
     case -= Pos(0, usb_y, usb_z) * usb
 
-    # 5. Two retention beams across the X width, one each behind the top
-    #    and bottom of the screen PCB. Each beam stretches from the inner
-    #    Y wall inward to BEAM_OVERLAP mm inside the PCB outline; they
-    #    sit immediately behind the back face of the screen PCB so the
-    #    PCB cannot drift toward the back of the case.
-    for sy in (-1, 1):
-        beam = Box(BEAM_X_SIZE, BEAM_Y_SIZE, BEAM_Z_THICK)
-        case += Pos(0, sy * BEAM_Y_CENTER,
-                     SCREEN_PCB_Z_BACK + BEAM_Z_THICK / 2) * beam
+    # 5. Four corner L-bracket hooks behind the screen PCB. Each one is
+    #    flush with the inner wall on both X and Y, so it grabs the PCB
+    #    corner from the back and pins it against the front panel.
+    hook_x_center = INNER_W / 2 - HOOK_X / 2
+    hook_y_center = INNER_H / 2 - HOOK_Y / 2
+    hook_z_center = SCREEN_PCB_Z_BACK + HOOK_Z_THICK / 2
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            hook = Box(HOOK_X, HOOK_Y, HOOK_Z_THICK)
+            case += Pos(sx * hook_x_center,
+                        sy * hook_y_center,
+                        hook_z_center) * hook
 
     # 6. ESP32 standoffs — four cylinders rising from the front inner
-    #    wall to the front face of the ESP32 board. They sit in the
-    #    PCB-corner safe zone (just inside each corner by STANDOFF_INSET).
+    #    wall to the front face of the ESP32 board.
     standoff_h = ESP_PCB_Z_FRONT - FRONT   # 7.2 mm
     for sx in (-1, 1):
         for sy in (-1, 1):
