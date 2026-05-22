@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  com.cchud.push.plist — launchd agent for periodic quota pushes.
+
+  SETUP REQUIRED BEFORE LOADING:
+  1. Create a wrapper script (see host/README.md for a template) that reads
+     your current 5h/7d quota numbers and calls push_quota.py with them.
+  2. Replace /REPLACE_ME/wrapper.sh below with the absolute path to that script.
+  3. Replace /usr/local/bin/python3 if your Python lives elsewhere
+     (e.g. /Users/<you>/Desktop/work/cc_hud/host/.venv/bin/python).
+
+  INSTALL:
+    cp com.cchud.push.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.cchud.push.plist
+
+  UNINSTALL:
+    launchctl unload ~/Library/LaunchAgents/com.cchud.push.plist
+    rm ~/Library/LaunchAgents/com.cchud.push.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cchud.push</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/python3</string>
+    <string>/REPLACE_ME/wrapper.sh</string>
+  </array>
+
+  <key>StartInterval</key>
+  <integer>60</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/cchud.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/cchud.err.log</string>
+</dict>
+</plist>
