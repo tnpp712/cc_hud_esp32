@@ -43,16 +43,17 @@ LIP_W = INNER_W - 2 * LIP_CLEAR   # 35.6
 LIP_H = INNER_H - 2 * LIP_CLEAR   # 53.6
 
 
-# ── TP4056 charging module ──────────────────────────────────────
+# ── TP4056 charging module (vertical orientation) ──────────────
 # Standard TP4056 USB-C + DW01 protection module ≈ 25 × 18 × 3.5 mm.
-# Adjust if your module is different.
-TP4056_W     = 25.0   # X (long edge)
-TP4056_H     = 18.0   # Y (short edge — USB-C is on the +Y short edge)
+# Mounted VERTICALLY: long edge (25 mm) along Y, short edge (18 mm)
+# along X, USB-C connector on the +Y short edge.
+TP4056_W     = 18.0   # X (short edge)
+TP4056_H     = 25.0   # Y (long edge — USB-C is on the +Y short edge)
 TP4056_T     = 3.5    # Z thickness (PCB + components total)
 TP4056_CLEAR = 0.5    # clearance per side inside the pocket
 
-POCKET_X = TP4056_W + TP4056_CLEAR        # 25.5
-POCKET_Y = TP4056_H + TP4056_CLEAR        # 18.5
+POCKET_X = TP4056_W + TP4056_CLEAR        # 18.5
+POCKET_Y = TP4056_H + TP4056_CLEAR        # 25.5
 POCKET_Z = TP4056_T                       # 3.5
 
 # Y-position: the TP4056 board's +Y edge (where the USB-C connector
@@ -60,7 +61,17 @@ POCKET_Z = TP4056_T                       # 3.5
 # so the connector exits naturally toward +Y and meets the case top
 # wall slot.
 LIP_Y_HALF      = LIP_H / 2                       # 26.8
-TP4056_Y_CENTER = LIP_Y_HALF - TP4056_H / 2       # 17.8
+TP4056_Y_CENTER = LIP_Y_HALF - TP4056_H / 2       # 14.3
+
+
+# ── retention hooks at the pocket X edges ───────────────────────
+# Two small overhanging clips at the top of the pocket. They lock the
+# TP4056 board down after it snaps into the pocket.
+HOOK_OVERHANG = 0.5   # how far each hook reaches across the board edge
+HOOK_X_THICK  = 1.5   # width of hook anchor outside the pocket
+HOOK_Y_SIZE   = 4.0   # length of the hook clip along Y
+HOOK_Z_HEIGHT = 2.0   # vertical thickness — sits between board top and
+                      # lip top (board top cover_z=3.0, lip top cover_z=5)
 
 
 # ── pry-open notches ────────────────────────────────────────────
@@ -86,6 +97,21 @@ def gen_step():
                  align=(Align.CENTER, Align.CENTER, Align.MIN))
     pocket_z_start = COVER_THICK + LIP_DEPTH - POCKET_Z  # 1.5
     plate -= Pos(0, TP4056_Y_CENTER, pocket_z_start) * pocket
+
+    # Retention hooks — two clips at the +X and -X edges of the pocket
+    # that overhang into the pocket by HOOK_OVERHANG mm. The TP4056
+    # board snaps under them and then can't lift back out without a
+    # tool. Each hook sits above the board's top face (cover_z=3) and
+    # extends up to the lip top (cover_z=5).
+    hook_x_size  = HOOK_OVERHANG + HOOK_X_THICK
+    hook_z_start = COVER_THICK + LIP_DEPTH - HOOK_Z_HEIGHT  # 3.0
+    for sx in (-1, 1):
+        # X centre: pocket edge plus half of (HOOK_X_THICK − HOOK_OVERHANG)
+        hook_x_center = sx * (POCKET_X / 2
+                              + (HOOK_X_THICK - HOOK_OVERHANG) / 2)
+        hook = Box(hook_x_size, HOOK_Y_SIZE, HOOK_Z_HEIGHT,
+                   align=(Align.CENTER, Align.CENTER, Align.MIN))
+        plate += Pos(hook_x_center, TP4056_Y_CENTER, hook_z_start) * hook
 
     # Pry-open notches in the bottom edge.
     for sx in (-1, 1):

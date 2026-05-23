@@ -89,7 +89,10 @@ ESP_PCB_T = 1.6
 # can sit flush against the panel without the pins jamming.
 SLOT_X     = 30.0   # how wide the pocket runs across X (pin row span)
 SLOT_Y     = 5.0    # depth into the case along Y (crosses the PCB edge)
-SLOT_Z     = 1.5    # pocket depth — matches user-quoted pin height
+SLOT_Z     = 2.5    # pocket depth — was 1.5, deepened by 1 mm per user
+                    # request. Local front-panel thickness under the
+                    # slot drops to FRONT - SLOT_Z = 0.2 mm. If your
+                    # printer can't manage that, bump FRONT to 3.5–3.7.
 SLOT_Y_POS = -19.5  # Y centre of the pocket (slightly inside the
                     # screen PCB outline so the pins it relieves sit
                     # both inside and just below the PCB edge)
