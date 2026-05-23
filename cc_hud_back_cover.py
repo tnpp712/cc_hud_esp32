@@ -1,22 +1,25 @@
 """
 cc_hud back cover — parametric build123d source.
 
-Lip-jointed plug that closes the back of cc_hud_case, now with a
-through-hole for the USB-C charging port (the user pulls the connector
-out through the back cover instead of a side / top wall).
+Lip-jointed plug that closes the back of cc_hud_case. The cover hosts
+the TP4056 charging module in a rectangular pocket. The module's USB-C
+connector aligns with a slot in the cc_hud_case top wall (+Y face) and
+pokes through there.
 
-Layout (mm, +Z = plugs into the case interior):
+Coordinate system (cover-local):
     Z = 0 .. COVER_THICK              flat backplate (40 × 58)
     Z = COVER_THICK .. + LIP_DEPTH    lip plug (35.6 × 53.6)
-    + USB-C hole through the whole cover
-    + 2x fingernail-pry notches in the bottom edge
 
-How the charging port works on this back-cover variant: keep the
-ESP32-S3 board mounted upright inside the case (USB-C on the top edge
-of the board, pointing at +Y). Use a short USB-C extension or a 90°
-USB-C female-to-male adapter to route the connector from the board's
-+Y face down to the centre of the back cover. Plug the charger into
-the back cover's hole; the adapter does the bending inside.
+Mapping to case-local (when assembled):
+    case_z = (CASE_D + COVER_THICK) - cover_z      i.e. 47 - cover_z
+
+Features:
+    • Lip plug for friction fit.
+    • TP4056 module pocket — 25.5 × 18.5 × 3.5 mm, cut into the cover
+      from the lip-top side. The pocket positions the TP4056 board so
+      its USB-C edge sits flush with the cover lip's top Y edge, which
+      lines the USB-C connector up with the case's top-wall slot.
+    • Two fingernail-pry notches on the bottom edge.
 """
 
 from build123d import Align, Box, Pos
@@ -40,16 +43,24 @@ LIP_W = INNER_W - 2 * LIP_CLEAR   # 35.6
 LIP_H = INNER_H - 2 * LIP_CLEAR   # 53.6
 
 
-# ── USB-C through-hole ──────────────────────────────────────────
-# A simple rectangular cut, sized for the USB-C connector body plus
-# a small clearance. Larger if you plan to bolt in a panel-mount
-# USB-C socket from the inside.
-USB_W         = 8.8
-USB_H         = 3.3
-USB_CLEARANCE = 1.0
-USB_HOLE_OFFSET_Y = 0   # centre by default. Shift positive (toward
-                        # the top) if your adapter is short and you
-                        # want the hole closer to the board's USB-C.
+# ── TP4056 charging module ──────────────────────────────────────
+# Standard TP4056 USB-C + DW01 protection module ≈ 25 × 18 × 3.5 mm.
+# Adjust if your module is different.
+TP4056_W     = 25.0   # X (long edge)
+TP4056_H     = 18.0   # Y (short edge — USB-C is on the +Y short edge)
+TP4056_T     = 3.5    # Z thickness (PCB + components total)
+TP4056_CLEAR = 0.5    # clearance per side inside the pocket
+
+POCKET_X = TP4056_W + TP4056_CLEAR        # 25.5
+POCKET_Y = TP4056_H + TP4056_CLEAR        # 18.5
+POCKET_Z = TP4056_T                       # 3.5
+
+# Y-position: the TP4056 board's +Y edge (where the USB-C connector
+# is) should line up with the cover lip's top edge (Y = LIP_H/2 = 26.8),
+# so the connector exits naturally toward +Y and meets the case top
+# wall slot.
+LIP_Y_HALF      = LIP_H / 2                       # 26.8
+TP4056_Y_CENTER = LIP_Y_HALF - TP4056_H / 2       # 17.8
 
 
 # ── pry-open notches ────────────────────────────────────────────
@@ -60,21 +71,21 @@ NOTCH_OFFSET  = 10.0
 
 
 def gen_step():
+    # Flat backplate
     plate = Box(CASE_W, CASE_H, COVER_THICK,
                 align=(Align.CENTER, Align.CENTER, Align.MIN))
 
+    # Lip plug
     lip = Box(LIP_W, LIP_H, LIP_DEPTH,
               align=(Align.CENTER, Align.CENTER, Align.MIN))
     plate += Pos(0, 0, COVER_THICK) * lip
 
-    # USB-C through-hole: punches through the full COVER_THICK + LIP_DEPTH
-    # so a plug can pass right through the cover into the cavity.
-    full_thick = COVER_THICK + LIP_DEPTH + 1.0
-    usb_hole = Box(USB_W + USB_CLEARANCE,
-                   USB_H + USB_CLEARANCE,
-                   full_thick,
-                   align=(Align.CENTER, Align.CENTER, Align.MIN))
-    plate -= Pos(0, USB_HOLE_OFFSET_Y, -0.5) * usb_hole
+    # TP4056 pocket — cut from the lip-top side (Z=5) toward the plate
+    # by POCKET_Z (3.5). Floor sits at Z = 1.5 (0.5 mm into the plate).
+    pocket = Box(POCKET_X, POCKET_Y, POCKET_Z,
+                 align=(Align.CENTER, Align.CENTER, Align.MIN))
+    pocket_z_start = COVER_THICK + LIP_DEPTH - POCKET_Z  # 1.5
+    plate -= Pos(0, TP4056_Y_CENTER, pocket_z_start) * pocket
 
     # Pry-open notches in the bottom edge.
     for sx in (-1, 1):

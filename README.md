@@ -121,8 +121,8 @@ Two STL/3MF parts, both parametric (`*.py` sources in repo root):
 
 | File | What | Outer size |
 |---|---|---|
-| `cc_hud_case.3mf` | Main shell — front panel + screen window + header-pin relief pocket + feet (no standoffs) | 40 × 58 × 45 mm |
-| `cc_hud_back_cover.3mf` | Drop-in lip-jointed back cover **with USB-C through-hole** + pry-open notches | 40 × 58 × 5 mm |
+| `cc_hud_case.3mf` | Main shell — front panel + screen window + header-pin relief pocket + **top-wall USB-C cut-out** + feet | 40 × 58 × 45 mm |
+| `cc_hud_back_cover.3mf` | Drop-in lip-jointed back cover **with TP4056 pocket** + pry-open notches | 40 × 58 × 5 mm |
 
 Screen is **portrait** — long edge along Y. Active area 33 × 35 mm,
 screen module PCB 34 × 44 mm.
@@ -138,9 +138,13 @@ along the bottom edge of the screen PCB. That's where the screen
 module's header-pin solder joints sit; the pocket lets the PCB seat
 fully against the panel instead of being held off by the joints.
 
-USB-C exits **through the back cover**. Route the connector from the
-board's USB-C (on the +Y edge) to the centre of the back cover with
-a short 90° USB-C female-to-male adapter.
+The **TP4056 charging module** drops into a 25.5 × 18.5 × 3.5 mm
+pocket in the back cover. The module's USB-C connector then aligns
+with the case's top-wall cut-out — plug the charger into the top of
+the case and the lead runs straight into the module mounted in the
+back cover. (Module spec: standard TP4056 USB-C with DW01 protection,
+~25 × 18 × 3.5 mm. Adjust `TP4056_W`/`H`/`T` in the .py if yours is
+different.)
 
 Internal layout (Z = depth, front panel at Z=0):
 

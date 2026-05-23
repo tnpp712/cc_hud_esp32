@@ -48,9 +48,9 @@ FRONT  = 2.7    # screen active glass (2.7 mm) embeds INSIDE the front
                 # panel cut-out; only the 1.5 mm PCB sits behind the
                 # panel, leaving room for the 1.4 mm standoffs.
 
-# NOTE: the USB-C charging port now exits through the BACK COVER, not
-# the case. Use a 90° USB-C extension cable inside the cavity, or a
-# USB-C panel-mount socket secured behind the back-cover hole.
+# NOTE: the TP4056 charging module is embedded in the BACK COVER
+# (see cc_hud_back_cover.py). The module's USB-C connector pokes
+# through a slot in this case's TOP wall — see USB_TOP_Z_CENTER below.
 
 INNER_W = CASE_W - 2 * WALL   # 36
 INNER_H = CASE_H - 2 * WALL   # 54
@@ -95,10 +95,33 @@ SLOT_Y_POS = -19.5  # Y centre of the pocket (slightly inside the
                     # both inside and just below the PCB edge)
 
 
-# ── USB-C cutout (top wall) ─────────────────────────────────────
-USB_W = 8.8
-USB_H = 3.3
+# ── USB-C cutout (top wall, aligned to the TP4056 on the back cover) ─
+USB_W         = 8.8
+USB_H         = 3.3
 USB_CLEARANCE = 1.0
+
+# The TP4056 module is held in a pocket on the back cover. Its USB-C
+# connector ends up positioned at a specific case-Z so that it pokes
+# out the case's TOP wall (+Y face). Derivation (must match values in
+# cc_hud_back_cover.py):
+#
+#   case_z = (CASE_D + COVER_THICK) - cover_z                  ① mapping
+#   pocket_floor cover_z = COVER_THICK + LIP_DEPTH - TP4056_T   ② = 1.5
+#   PCB front face       = pocket_floor + TP4056_PCB_T          ③ = 3.1
+#   connector half       = USB_C_BODY_T / 2                     ④ = 1.65
+#
+# → connector centre cover_z = 3.1 + 1.65 = 4.75
+# → connector centre case_z  = 47 - 4.75 = 42.25
+#
+_COVER_THICK    = 2.0
+_LIP_DEPTH      = 3.0
+_TP4056_T       = 3.5
+_TP4056_PCB_T   = 1.6
+USB_TOP_Z_CENTER = (CASE_D + _COVER_THICK) - (
+    (_COVER_THICK + _LIP_DEPTH - _TP4056_T)  # pocket floor in cover_z
+    + _TP4056_PCB_T                          # add PCB thickness
+    + USB_H / 2                              # half connector body
+)
 
 
 # ── bottom feet ─────────────────────────────────────────────────
@@ -134,8 +157,13 @@ def gen_step():
              align=(Align.CENTER, Align.CENTER, Align.MIN))
     case -= Pos(0, 0, -0.5) * sw
 
-    # 4. (No USB-C cutout on the case body — the charging port now
-    #     punches through the back cover. See cc_hud_back_cover.py.)
+    # 4. USB-C cut-out through the TOP wall, aligned to the TP4056
+    #    USB-C connector held by the back cover.
+    usb = Box(USB_W + USB_CLEARANCE,
+              WALL + 2.0,
+              USB_H + USB_CLEARANCE,
+              align=(Align.CENTER, Align.CENTER, Align.CENTER))
+    case -= Pos(0, CASE_H / 2 - WALL / 2, USB_TOP_Z_CENTER) * usb
 
     # 5. Solder-joint relief pocket — a shallow rectangular cavity on
     #    the inner face of the front panel, sitting where the screen
