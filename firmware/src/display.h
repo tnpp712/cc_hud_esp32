@@ -37,6 +37,12 @@ void displayRender(const DisplayView& view, bool full_redraw = false);
 // timestamp and redraws only the footer region.
 void displayTickFooter(const QuotaSnapshot& quota, uint64_t now_ms);
 
+// Pet animation tick (idle screen only). Picks the eye frame for the
+// current millis() and repaints the sprite if it changed. Cheap when
+// the frame hasn't flipped (early-out on cached frame). Call every
+// 100–200 ms from the main loop while in idle mode.
+void displayTickPet(uint64_t now_ms);
+
 // Update only the header dot to reflect a new connection state. Cheap; called
 // from BLE callbacks.
 void displayUpdateConnection(bool connected);

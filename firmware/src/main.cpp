@@ -305,6 +305,16 @@ void loop() {
         cc_hud::displayUpdateConnection(conn_state);
     }
 
+    // Pet animation tick (idle only). Cheap: early-outs when the eye
+    // frame hasn't changed since the previous tick.
+    static uint32_t s_last_pet_tick_ms = 0;
+    const uint32_t now_pet = millis();
+    if (!ota_active && s_was_idle &&
+        now_pet - s_last_pet_tick_ms >= 100) {
+        s_last_pet_tick_ms = now_pet;
+        cc_hud::displayTickPet(static_cast<uint64_t>(now_pet));
+    }
+
     // Footer freshness tick.
     const uint32_t now = millis();
     if (!ota_active &&

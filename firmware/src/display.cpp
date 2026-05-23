@@ -331,6 +331,32 @@ constexpr int16_t kIdleStatusBaselineY = 210;
 constexpr int16_t kIdleStatusRowY      = 185;
 constexpr int16_t kIdleStatusRowH      = 35;
 
+// Pet sprite (idle screen only). A cute cat face drawn at the top of
+// the screen with primitive shapes (so we don't burn flash on bitmaps).
+// The cat walks left/right across the top and bobs up/down, blinking
+// every few seconds.
+constexpr int16_t kIdlePetRadius   = 13;     // head radius
+constexpr int16_t kIdlePetMinX     = 28;     // walk-left limit
+constexpr int16_t kIdlePetMaxX     = kScreenWidth - 28;  // walk-right limit
+constexpr int16_t kIdlePetBaseY    = 24;
+constexpr int16_t kIdlePetBobAmpY  = 2;      // bob amplitude in px
+constexpr int16_t kIdlePetBobMaxY  = kIdlePetBaseY + kIdlePetBobAmpY;
+// Sprite bbox (relative to centre cx, cy). Wide enough to cover ears + whiskers.
+constexpr int16_t kIdlePetHalfW    = kIdlePetRadius + 4;
+constexpr int16_t kIdlePetTopY     = 4;
+constexpr int16_t kIdlePetBotY     = kIdlePetBobMaxY + 10;  // mouth + bob room
+// Walk: triangle wave between min/max X over kIdlePetWalkPeriodMs.
+constexpr uint32_t kIdlePetWalkPeriodMs  = 18000;
+constexpr uint32_t kIdlePetBlinkPeriodMs = 4000;
+constexpr uint32_t kIdlePetBlinkDurMs    = 200;
+// Bob: small Y oscillation, half-period ~250ms.
+constexpr uint32_t kIdlePetBobPeriodMs   = 500;
+
+// Cached state — start at -1 / -1 so the very first tick repaints.
+int16_t g_pet_last_x      = -1;
+int16_t g_pet_last_y      = -1;
+int8_t  g_pet_frame_drawn = -1;
+
 void drawCentered(const char* s, int16_t baseline_y,
                   uint16_t color, const GFXfont* font) {
     g_tft.setFont(font);
@@ -385,6 +411,57 @@ void composeIdleStrings(const QuotaSnapshot& q, uint64_t now_ms,
                   1900 + tm_buf.tm_year);
 }
 
+// Render the pet sprite at an arbitrary (cx, cy). frame 0 = eyes open
+// with white sparkle, frame 1 = eyes closed (a quick blink). Does NOT
+// erase — the caller is responsible for clearing the old position
+// before drawing the new one (saves overdraw when only the eyes change).
+void drawPetFrameAt(int16_t cx, int16_t cy, int8_t frame) {
+    // Head (yellow disc).
+    g_tft.fillCircle(cx, cy, kIdlePetRadius, kColorYellow);
+    // Outer ears (yellow triangles, bigger now).
+    g_tft.fillTriangle(cx - 13, cy -  4, cx -  5, cy - 16,
+                       cx -  5, cy -  5, kColorYellow);
+    g_tft.fillTriangle(cx + 13, cy -  4, cx +  5, cy - 16,
+                       cx +  5, cy -  5, kColorYellow);
+    // Inner ears (red).
+    g_tft.fillTriangle(cx - 11, cy -  5, cx -  7, cy - 12,
+                       cx -  6, cy -  5, kColorRed);
+    g_tft.fillTriangle(cx + 11, cy -  5, cx +  7, cy - 12,
+                       cx +  6, cy -  5, kColorRed);
+    // Eyes.
+    if (frame == 1) {
+        // Blink: short horizontal lines.
+        g_tft.drawLine(cx - 8, cy - 1, cx - 3, cy - 1, kColorBg);
+        g_tft.drawLine(cx + 3, cy - 1, cx + 8, cy - 1, kColorBg);
+    } else {
+        // Open: dark eyes with a small white sparkle.
+        g_tft.fillCircle(cx - 5, cy - 1, 3, kColorBg);
+        g_tft.fillCircle(cx + 5, cy - 1, 3, kColorBg);
+        g_tft.drawPixel(cx - 4, cy - 2, kColorFg);
+        g_tft.drawPixel(cx + 6, cy - 2, kColorFg);
+    }
+    // Nose (small red dot).
+    g_tft.fillCircle(cx, cy + 3, 1, kColorRed);
+    // Mouth (small smile).
+    g_tft.drawLine(cx - 3, cy + 5, cx,     cy + 7, kColorBg);
+    g_tft.drawLine(cx,     cy + 7, cx + 3, cy + 5, kColorBg);
+    // Whiskers (subtle grey).
+    g_tft.drawLine(cx - 15, cy + 3, cx - 7, cy + 4, kColorMuted);
+    g_tft.drawLine(cx +  7, cy + 4, cx + 15, cy + 3, kColorMuted);
+}
+
+// Erase the sprite area at a given (cx, cy). Used when the cat moves so
+// the trail behind it doesn't smear.
+void erasePetAt(int16_t cx, int16_t cy) {
+    if (cx < 0) return;
+    g_tft.fillRect(cx - kIdlePetHalfW - 1,
+                   kIdlePetTopY,
+                   kIdlePetHalfW * 2 + 2,
+                   kIdlePetBotY - kIdlePetTopY + 1,
+                   kColorBg);
+    (void)cy;
+}
+
 void drawIdleBody(const QuotaSnapshot& q, uint64_t now_ms,
                   bool force_full) {
     char clock_buf[8];
@@ -396,8 +473,11 @@ void drawIdleBody(const QuotaSnapshot& q, uint64_t now_ms,
     const bool full = force_full || !g_last_idle.initialized;
     if (full) {
         g_tft.fillScreen(kColorBg);
-        // Draw header centered too — small title at the top.
-        printAt("idle", kRowMargin, 28, kColorMuted, &FreeSans9pt7b);
+        // Reset cached pet position so the next displayTickPet repaints
+        // immediately at the correct walk-phase coordinates.
+        g_pet_last_x      = -1;
+        g_pet_last_y      = -1;
+        g_pet_frame_drawn = -1;
         // Separator line under the date.
         g_tft.drawFastHLine(kRowMargin * 2, kIdleSeparatorY,
                             kScreenWidth - 4 * kRowMargin, kColorMuted);
@@ -555,6 +635,9 @@ void displayRender(const DisplayView& view, bool full_redraw) {
     // Leaving idle mode (coming back into hud)? Reset idle cache and wipe.
     if (g_last.body_mode_drawn == static_cast<int8_t>(kSnapshotModeIdle)) {
         g_last_idle = LastDrawnIdle{};
+        g_pet_last_x      = -1;
+        g_pet_last_y      = -1;
+        g_pet_frame_drawn = -1;
         g_tft.fillScreen(kColorBg);
         g_last = LastDrawnState{};
         full_redraw = true;
@@ -647,6 +730,56 @@ void displayRender(const DisplayView& view, bool full_redraw) {
 
     // ---- footer ----
     drawFooter(q, view.now_ms);
+}
+
+// Pet animation tick. Picks position + blink frame for the current
+// millis() and repaints only when something changed. The cat walks
+// across the top of the screen in a triangle-wave pattern, bobs Y
+// every half-second to suggest stepping, and blinks every 4 seconds.
+void displayTickPet(uint64_t now_ms) {
+    // Walk: triangle wave between min/max X over kIdlePetWalkPeriodMs.
+    const uint32_t walk_phase =
+        static_cast<uint32_t>(now_ms % kIdlePetWalkPeriodMs);
+    const uint32_t half = kIdlePetWalkPeriodMs / 2;
+    const int32_t  range = kIdlePetMaxX - kIdlePetMinX;
+    int16_t cx;
+    if (walk_phase < half) {
+        // Walking right.
+        cx = static_cast<int16_t>(
+            kIdlePetMinX + range * static_cast<int32_t>(walk_phase) / half);
+    } else {
+        // Walking left.
+        cx = static_cast<int16_t>(
+            kIdlePetMaxX - range *
+            static_cast<int32_t>(walk_phase - half) / half);
+    }
+    // Bob: simple 2-level oscillation; bottom = base, top = base + amp.
+    const int16_t cy = (static_cast<uint32_t>(now_ms / kIdlePetBobPeriodMs) & 1)
+                        ? (kIdlePetBaseY + kIdlePetBobAmpY)
+                        : kIdlePetBaseY;
+    // Blink: open most of the time, closed for kIdlePetBlinkDurMs each
+    // kIdlePetBlinkPeriodMs cycle.
+    const uint32_t blink_phase =
+        static_cast<uint32_t>(now_ms % kIdlePetBlinkPeriodMs);
+    const int8_t frame = (blink_phase >= (kIdlePetBlinkPeriodMs -
+                                          kIdlePetBlinkDurMs)) ? 1 : 0;
+
+    // Skip if nothing changed enough to matter (don't repaint for <3 px
+    // X moves to keep the cadence below the noticeable-flicker threshold).
+    const bool same_y    = (cy == g_pet_last_y);
+    const bool same_eye  = (frame == g_pet_frame_drawn);
+    const int  dx        = (g_pet_last_x < 0) ? 9999 : (cx - g_pet_last_x);
+    const int  abs_dx    = dx < 0 ? -dx : dx;
+    if (abs_dx < 3 && same_y && same_eye) {
+        return;
+    }
+
+    // Erase the old position so we don't leave a smear, then draw the new.
+    erasePetAt(g_pet_last_x, g_pet_last_y);
+    drawPetFrameAt(cx, cy, frame);
+    g_pet_last_x      = cx;
+    g_pet_last_y      = cy;
+    g_pet_frame_drawn = frame;
 }
 
 void displayTickFooter(const QuotaSnapshot& quota, uint64_t now_ms) {

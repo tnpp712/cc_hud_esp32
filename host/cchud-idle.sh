@@ -15,6 +15,9 @@
 #   CCHUD_IDLE_RATE_LIMIT   minimum seconds between idle pushes (default 600).
 #   CCHUD_IDLE_LOG          log file path (default /tmp/cchud-idle.log).
 #   CCHUD_IDLE_TIMEOUT      bleak scan/connect timeout (default 8 seconds).
+#   CCHUD_WEATHER_CITY      if set (e.g. "Beijing"), fetch weather from
+#                           wttr.in and use it as the status string,
+#                           overriding the positional argument.
 
 set -u
 
@@ -47,9 +50,15 @@ fi
 echo "$NOW" > "$LAST_FILE"
 
 # Fire and forget. Background python so the statusline returns instantly.
+EXTRA_ARGS=()
+if [ -n "${CCHUD_WEATHER_CITY:-}" ]; then
+    EXTRA_ARGS+=(--weather-city "$CCHUD_WEATHER_CITY")
+fi
+
 "$PY" "$PUSH" \
     --address "$ADDR" \
     --status "$STATUS" \
+    "${EXTRA_ARGS[@]}" \
     --timeout "$TIMEOUT" \
     --verbose \
     </dev/null >>"$LOG" 2>&1 &

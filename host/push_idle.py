@@ -30,6 +30,8 @@ import asyncio
 import struct
 import sys
 import time
+import urllib.parse
+import urllib.request
 
 from bleak import BleakClient
 
@@ -43,12 +45,61 @@ def _log(msg: str, verbose: bool) -> None:
         print(msg, file=sys.stderr)
 
 
+def fetch_weather(city: str, timeout: float = 5.0) -> str:
+    """Fetch a short weather string from wttr.in. No API key required.
+
+    Returns "" if anything goes wrong (network error, timeout, empty
+    response). Caller falls back to whatever was passed via --status.
+
+    The wttr.in format used is %C+%t — condition text + temperature, e.g.
+    "Light rain shower +12°C". The device's font is ASCII-only, so we
+    normalise the degree sign to a plain "C" / "F" and drop anything
+    else that isn't ASCII.
+    """
+    url = (
+        f"https://wttr.in/{urllib.parse.quote(city)}"
+        f"?format=%C+%t&m"  # &m = metric units
+    )
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "curl/cc-hud"}
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            text = resp.read().decode("utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001 — best-effort fetch
+        print(f"weather fetch failed: {exc}", file=sys.stderr)
+        return ""
+    text = (
+        text.replace("°C", "C")
+            .replace("°F", "F")
+            .replace("°", "")
+            .strip()
+    )
+    text = text.encode("ascii", errors="ignore").decode().strip()
+    # wttr sometimes returns the city name on error ("Unknown location").
+    # Bail if the response doesn't look like a weather phrase.
+    if not text or "Unknown" in text or "ERROR" in text.upper():
+        return ""
+    return text[:MAX_STATUS_LEN]
+
+
 def _pack_v4(unix_ts: int, utc_offset_min: int, status: str) -> bytes:
     status_b = status.encode("ascii", errors="replace")[:MAX_STATUS_LEN]
     return struct.pack("<BIhB", MSG_TYPE_V4, unix_ts, utc_offset_min, len(status_b)) + status_b
 
 
-async def run(address: str, status: str, timeout: float, verbose: bool) -> int:
+async def run(address: str, status: str, weather_city: str,
+              timeout: float, verbose: bool) -> int:
+    # --weather-city overrides --status. Fetch happens before the BLE
+    # connection so we don't hold the radio open while waiting on HTTP.
+    if weather_city:
+        fetched = fetch_weather(weather_city, timeout=min(timeout, 5.0))
+        if fetched:
+            _log(f"weather '{weather_city}' -> {fetched!r}", verbose)
+            status = fetched
+        else:
+            _log(f"weather '{weather_city}' fetch returned empty; keeping --status",
+                 verbose)
     # UTC Unix timestamp + local timezone offset in minutes (e.g. +480 for UTC+8).
     unix_ts = int(time.time())
     # time.timezone is seconds WEST of UTC (sign-inverted vs typical "+offset").
@@ -86,6 +137,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--status", default="",
                    help="Free-form ASCII status string, ≤32 chars "
                         "(weather, mood, pomodoro, anything)")
+    p.add_argument("--weather-city", default="",
+                   help="Fetch weather for this city via wttr.in and use "
+                        "it as the status string (overrides --status). "
+                        "No API key needed. ASCII-cleaned automatically.")
     p.add_argument("--timeout", type=float, default=10.0)
     p.add_argument("--verbose", action="store_true", default=False)
     return p
@@ -97,6 +152,7 @@ def main() -> None:
         sys.exit(asyncio.run(run(
             address=args.address,
             status=args.status,
+            weather_city=args.weather_city,
             timeout=args.timeout,
             verbose=args.verbose,
         )))
