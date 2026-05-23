@@ -11,6 +11,8 @@
 
 #include <Arduino.h>
 
+#include <cstring>
+
 #include "ble_server.h"
 #include "config.h"
 #include "display.h"
@@ -27,6 +29,7 @@ volatile bool g_redraw_pending = true;
 volatile bool g_conn_pending   = false;
 volatile bool g_conn_state     = false;
 volatile bool g_alert_pending  = false;  // set true when a 5h/7d crossing >= 95% fired
+volatile bool g_force_idle     = false;  // explicit force-idle latch (msg_type 0x05)
 
 uint32_t g_last_footer_tick = 0;
 
@@ -44,19 +47,34 @@ static uint8_t computePct(uint16_t used, uint16_t limit) {
 // snapshot, persist to NVS, flip the redraw flag — the main loop does the
 // actual display work.
 void onQuotaWrite(const QuotaSnapshot& parsed) {
-    // Carry the alert flags forward from the previous snapshot, then update
-    // them based on the new percentages. A flag latches true when we cross
-    // the threshold (we flash once), and clears when we drop back below.
+    // Carry the alert flags and the idle-time fields forward from the
+    // previous snapshot — a v1/v2/v3 payload only describes quota state,
+    // so unix_ts / utc_offset_min / time_capture_ms / idle_status must
+    // be preserved across writes (otherwise the idle screen would lose
+    // its calibrated clock every time the statusline pushes quota).
     QuotaSnapshot next;
     {
         portENTER_CRITICAL(&g_lock);
-        const bool prev_alerted_5h = g_quota.alerted_5h;
-        const bool prev_alerted_7d = g_quota.alerted_7d;
+        const bool      prev_alerted_5h    = g_quota.alerted_5h;
+        const bool      prev_alerted_7d    = g_quota.alerted_7d;
+        const uint32_t  prev_unix_ts       = g_quota.unix_ts;
+        const int16_t   prev_utc_offset    = g_quota.utc_offset_min;
+        const uint64_t  prev_time_capture  = g_quota.time_capture_ms;
+        char            prev_idle_status[33];
+        std::strncpy(prev_idle_status, g_quota.idle_status,
+                     sizeof(prev_idle_status));
+        prev_idle_status[sizeof(prev_idle_status) - 1] = '\0';
         portEXIT_CRITICAL(&g_lock);
 
         next = parsed;
-        next.alerted_5h = prev_alerted_5h;
-        next.alerted_7d = prev_alerted_7d;
+        next.alerted_5h      = prev_alerted_5h;
+        next.alerted_7d      = prev_alerted_7d;
+        next.unix_ts         = prev_unix_ts;
+        next.utc_offset_min  = prev_utc_offset;
+        next.time_capture_ms = prev_time_capture;
+        std::strncpy(next.idle_status, prev_idle_status,
+                     sizeof(next.idle_status));
+        next.idle_status[sizeof(next.idle_status) - 1] = '\0';
     }
 
     bool need_flash = false;
@@ -105,6 +123,44 @@ void onConnChange(bool connected) {
     portEXIT_CRITICAL(&g_lock);
 }
 
+// v4 idle write: host pushed wall clock + status string. We merge only
+// the idle fields into g_quota, leaving the quota data alone, and we
+// deliberately do NOT update last_update_ms — that timer still counts
+// from the last v1/v2/v3 quota write so the 30-min idle threshold
+// behaves correctly.
+void onIdleWrite(uint32_t unix_ts,
+                 int16_t  utc_offset_min,
+                 uint64_t capture_ms,
+                 const char* idle_status) {
+    // Sentinel: utc_offset_min == -32768 means "this is a force-idle
+    // toggle command, not a normal time push". The unix_ts field carries
+    // the command (1 = enter forced idle, 0 = leave).
+    if (utc_offset_min == -32768) {
+        portENTER_CRITICAL(&g_lock);
+        g_force_idle = (unix_ts != 0);
+        g_redraw_pending = true;
+        portEXIT_CRITICAL(&g_lock);
+        Serial.printf("[FORCE] g_force_idle = %d\n",
+                      static_cast<int>(unix_ts != 0));
+        return;
+    }
+
+    portENTER_CRITICAL(&g_lock);
+    g_quota.unix_ts         = unix_ts;
+    g_quota.utc_offset_min  = utc_offset_min;
+    g_quota.time_capture_ms = capture_ms;
+    std::strncpy(g_quota.idle_status, idle_status,
+                 sizeof(g_quota.idle_status) - 1);
+    g_quota.idle_status[sizeof(g_quota.idle_status) - 1] = '\0';
+    g_redraw_pending = true;
+    QuotaSnapshot snapshot_copy = g_quota;
+    portEXIT_CRITICAL(&g_lock);
+
+    if (persistenceSave(snapshot_copy)) {
+        Serial.println("[NVS] idle saved");
+    }
+}
+
 }  // namespace cc_hud
 
 // ============================================================== Arduino ===
@@ -132,6 +188,12 @@ void setup() {
     } else {
         Serial.println("[NVS] cold start (no quota saved)");
     }
+    // millis() resets to 0 on boot, but NVS holds a stale last_update_ms
+    // from the previous run. Reset the time-relative fields so the idle
+    // timer counts from THIS boot and the clock waits for a fresh BLE
+    // calibration before claiming to know the time.
+    loaded.last_update_ms  = 0;
+    loaded.time_capture_ms = 0;
     cc_hud::g_quota = loaded;
 
     // Bring up the display, paint first frame.
@@ -150,7 +212,9 @@ void setup() {
     //   1. bleServerInit  — quota service + chars + advertising metadata
     //   2. otaServerInit  — OTA service + chars on the same server
     //   3. bleStartAdvertising — finally make us discoverable
-    cc_hud::bleServerInit(cc_hud::onQuotaWrite, cc_hud::onConnChange);
+    cc_hud::bleServerInit(cc_hud::onQuotaWrite,
+                          cc_hud::onConnChange,
+                          cc_hud::onIdleWrite);
     cc_hud::otaServerInit(cc_hud::bleGetServer());
     cc_hud::bleStartAdvertising();
 
@@ -180,7 +244,38 @@ void loop() {
         need_alert                 = true;
         cc_hud::g_alert_pending    = false;
     }
+    cc_hud::QuotaSnapshot snap_for_check = cc_hud::g_quota;
     portEXIT_CRITICAL(&cc_hud::g_lock);
+
+    // Detect idle-mode transitions. We treat last_update_ms == 0 as
+    // "boot moment", so even if no quota write has happened this boot
+    // the device will fall to idle after kIdleThresholdMs ms of uptime.
+    // A fresh quota write resets the timer.
+    static bool s_was_idle = false;
+    const uint64_t now_ms_check = static_cast<uint64_t>(millis());
+    const uint64_t since_last =
+        (now_ms_check > snap_for_check.last_update_ms)
+            ? (now_ms_check - snap_for_check.last_update_ms)
+            : 0;
+    bool force_idle_now;
+    portENTER_CRITICAL(&cc_hud::g_lock);
+    force_idle_now = cc_hud::g_force_idle;
+    portEXIT_CRITICAL(&cc_hud::g_lock);
+    const bool now_idle = force_idle_now ||
+                          (since_last > cc_hud::kIdleThresholdMs);
+    if (now_idle != s_was_idle) {
+        s_was_idle = now_idle;
+        need_redraw = true;
+        if (!need_redraw || snap.last_update_ms == 0) {
+            snap = snap_for_check;
+        }
+        Serial.printf("[IDLE] mode flip -> %s\n", now_idle ? "idle" : "hud");
+    }
+    // Override the snapshot's mode to idle so displayRender picks the
+    // idle branch (we never persist mode=2; it's a runtime decoration).
+    if (now_idle) {
+        snap.mode = cc_hud::kSnapshotModeIdle;
+    }
 
     // Threshold alert first — it blocks ~5s and then forces a full redraw.
     if (need_alert) {
@@ -218,7 +313,17 @@ void loop() {
         portENTER_CRITICAL(&cc_hud::g_lock);
         cc_hud::QuotaSnapshot s = cc_hud::g_quota;
         portEXIT_CRITICAL(&cc_hud::g_lock);
-        cc_hud::displayTickFooter(s, static_cast<uint64_t>(now));
+        if (s_was_idle) {
+            // Idle mode: re-render so the clock catches the next minute.
+            s.mode = cc_hud::kSnapshotModeIdle;
+            cc_hud::DisplayView v;
+            v.quota         = s;
+            v.ble_connected = cc_hud::bleIsConnected();
+            v.now_ms        = static_cast<uint64_t>(now);
+            cc_hud::displayRender(v);
+        } else {
+            cc_hud::displayTickFooter(s, static_cast<uint64_t>(now));
+        }
     }
 
     delay(50);  // light yield, keeps loop responsive without spinning hot

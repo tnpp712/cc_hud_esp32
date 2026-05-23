@@ -11,12 +11,14 @@
 
 namespace cc_hud {
 
-// Display mode received in v3 payloads (and persisted in NVS).
+// Display mode received in v3 / v4 payloads (and persisted in NVS).
 //   0 = subscription (default): show 5h + 7d rows with reset countdowns.
 //   1 = api: show cost (USD) and session duration instead of rate limits.
+//   2 = idle (automatic, not pushed by host): show clock + status text.
 // Older v1/v2 payloads imply subscription mode.
 constexpr uint8_t kSnapshotModeSubscription = 0;
 constexpr uint8_t kSnapshotModeApi          = 1;
+constexpr uint8_t kSnapshotModeIdle         = 2;
 
 struct QuotaSnapshot {
     // Common.
@@ -39,13 +41,20 @@ struct QuotaSnapshot {
     uint32_t cost_micro_usd = 0;  // 1_000_000 = $1.00
     uint32_t duration_s     = 0;  // session duration in seconds
 
+    // Idle-mode time + status fields (set by v4 BLE writes).
+    uint32_t unix_ts        = 0;        // host-supplied UTC Unix time
+    int16_t  utc_offset_min = 0;        // local timezone offset from UTC
+    uint64_t time_capture_ms = 0;       // millis() when unix_ts was received
+    char     idle_status[33] = {0};     // free-form ASCII (weather, etc.)
+
     // One-shot threshold alert state — true after we've already flashed for
     // this 95%+ crossing. Reset to false when the percentage drops below.
     bool alerted_5h = false;
     bool alerted_7d = false;
 
-    // Monotonic millis() captured at the moment of the last successful write.
-    // 0 means "no quota has ever been received" — treat as a cold boot.
+    // Monotonic millis() captured at the moment of the last successful quota
+    // write (any of v1/v2/v3). The loop uses this to decide whether to enter
+    // idle mode after ~30 minutes of inactivity. 0 = no quota ever received.
     uint64_t last_update_ms = 0;
 };
 

@@ -43,6 +43,13 @@ bool persistenceLoad(QuotaSnapshot& out) {
     out.duration_s     = g_prefs.getULong(kNvsKeyDurS,     0);
     out.alerted_5h     = g_prefs.getBool(kNvsKey5hAlert,   false);
     out.alerted_7d     = g_prefs.getBool(kNvsKey7dAlert,   false);
+    out.unix_ts        = g_prefs.getULong(kNvsKeyUnixTs,   0);
+    out.utc_offset_min = static_cast<int16_t>(
+        g_prefs.getShort(kNvsKeyTzOff, 0));
+    out.time_capture_ms = g_prefs.getULong64(kNvsKeyTsCap, 0);
+    String istr = g_prefs.getString(kNvsKeyIdleStr, "");
+    std::strncpy(out.idle_status, istr.c_str(), sizeof(out.idle_status) - 1);
+    out.idle_status[sizeof(out.idle_status) - 1] = '\0';
     out.last_update_ms = g_prefs.getULong64(kNvsKeyTs,     kTsUnset);
     // Title — falls back to "CC HUD" if no key on first boot.
     String t = g_prefs.getString(kNvsKeyTitle, "CC HUD");
@@ -70,6 +77,10 @@ bool persistenceSave(const QuotaSnapshot& snap) {
     ok &= g_prefs.putULong(kNvsKeyDurS,     snap.duration_s)     == sizeof(uint32_t);
     ok &= g_prefs.putBool(kNvsKey5hAlert,   snap.alerted_5h);
     ok &= g_prefs.putBool(kNvsKey7dAlert,   snap.alerted_7d);
+    ok &= g_prefs.putULong(kNvsKeyUnixTs,   snap.unix_ts)        == sizeof(uint32_t);
+    ok &= g_prefs.putShort(kNvsKeyTzOff,    snap.utc_offset_min) == sizeof(int16_t);
+    ok &= g_prefs.putULong64(kNvsKeyTsCap,  snap.time_capture_ms) == sizeof(uint64_t);
+    ok &= g_prefs.putString(kNvsKeyIdleStr, snap.idle_status)    > 0;
     ok &= g_prefs.putULong64(kNvsKeyTs,     snap.last_update_ms) == sizeof(uint64_t);
     // putString returns the byte count written including the null terminator.
     ok &= g_prefs.putString(kNvsKeyTitle,   snap.title)          > 0;

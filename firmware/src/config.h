@@ -33,19 +33,35 @@ constexpr const char* kBleServiceUuid       = "12345678-aaaa-bbbb-cccc-123456789
 constexpr const char* kBleQuotaCharUuid     = "12345678-aaaa-bbbb-cccc-1234567890a1";
 constexpr const char* kBleStateCharUuid     = "12345678-aaaa-bbbb-cccc-1234567890a2";
 
-// Quota payload framing — three versions are accepted by the firmware.
+// Quota payload framing — four versions are accepted by the firmware.
 //   v1 (0x01, 9 bytes):  used+limit for 5h and 7d only.
 //   v2 (0x02, 17 bytes): v1 + two u32 LE "seconds-until-reset" counters.
 //   v3 (0x03, 27+title_len bytes): v2 + mode byte + cost + duration + title.
 //     The firmware decrements reset_in_s in real time via millis() so the
 //     countdown stays accurate between pushes. Mode 0 = subscription (show
 //     5h/7d), mode 1 = api (show cost + duration).
+//   v4 (0x04, 8+status_len bytes): idle-mode payload — pushes the wall clock
+//     and a free-form status string. The firmware keeps the clock alive
+//     between pushes via millis(), and auto-switches to the idle display
+//     after ~30 minutes without a v1/v2/v3 quota write.
 constexpr size_t  kQuotaPayloadLenV1     = 9;
 constexpr size_t  kQuotaPayloadLenV2     = 17;
 constexpr size_t  kQuotaPayloadLenV3Base = 27;   // mandatory fields before title
+constexpr size_t  kQuotaPayloadLenV4Base = 8;    // mandatory fields before idle_status
 constexpr uint8_t kQuotaMsgTypeV1        = 0x01;
 constexpr uint8_t kQuotaMsgTypeV2        = 0x02;
 constexpr uint8_t kQuotaMsgTypeV3        = 0x03;
+constexpr uint8_t kQuotaMsgTypeV4        = 0x04;
+// Out-of-band control message: 1 byte msg_type 0x05 + 1 byte command.
+// cmd 0x00 = leave forced idle, cmd 0x01 = enter forced idle.
+constexpr uint8_t kQuotaMsgTypeForceIdle = 0x05;
+
+// Idle-mode trigger: switch to the clock screen after this many ms of
+// no v1/v2/v3 quota write. 30 minutes.
+constexpr uint32_t kIdleThresholdMs = 30UL * 60UL * 1000UL;
+
+// Idle status string max length (same envelope as title).
+constexpr size_t  kIdleStatusMaxLen = 32;
 // Mode flags (v3+).
 constexpr uint8_t kModeSubscription = 0x00;
 constexpr uint8_t kModeApi          = 0x01;
@@ -78,6 +94,10 @@ constexpr const char* kNvsKeyDurS    = "dur_s";
 constexpr const char* kNvsKeyTitle   = "title";
 constexpr const char* kNvsKey5hAlert = "5h_alerted"; // bool: already flashed?
 constexpr const char* kNvsKey7dAlert = "7d_alerted";
+constexpr const char* kNvsKeyUnixTs  = "unix_ts";    // last received UTC Unix time
+constexpr const char* kNvsKeyTzOff   = "tz_off";     // UTC offset in minutes (signed)
+constexpr const char* kNvsKeyTsCap   = "ts_cap";     // millis() at capture
+constexpr const char* kNvsKeyIdleStr = "idle_str";   // idle status string
 
 // ---------------------------------------------------------------------------
 // Display geometry and color palette. 16-bit RGB565 values.

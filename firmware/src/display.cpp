@@ -21,12 +21,14 @@
 #include <Adafruit_ST7789.h>
 #include <SPI.h>
 #include <Fonts/FreeSans9pt7b.h>
+#include <Fonts/FreeSans12pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSansBold24pt7b.h>
 
 #include <cstdio>
 #include <cstring>
 #include <climits>
+#include <ctime>
 
 #include "config.h"
 
@@ -303,6 +305,142 @@ void formatDuration(uint32_t total_s, char* out, size_t out_sz) {
     }
 }
 
+// ------------------------------------------------------------------ idle --
+//
+// Idle body: a centred big clock + date + user-supplied status line. We keep
+// last drawn strings in g_last_idle so partial redraws only repaint regions
+// whose visible text actually changed (huge win when the 5-second loop tick
+// only changes one of clock/date/status).
+struct LastDrawnIdle {
+    char clock_text[8]  = {0};
+    char date_text[24]  = {0};
+    char status_text[33] = {0};
+    bool initialized   = false;
+};
+static LastDrawnIdle g_last_idle;
+
+// Layout (idle screen Y coordinates):
+constexpr int16_t kIdleClockBaselineY  = 110;
+constexpr int16_t kIdleClockRowY       = 65;
+constexpr int16_t kIdleClockRowH       = 55;
+constexpr int16_t kIdleDateBaselineY   = 150;
+constexpr int16_t kIdleDateRowY        = 130;
+constexpr int16_t kIdleDateRowH        = 28;
+constexpr int16_t kIdleSeparatorY      = 170;
+constexpr int16_t kIdleStatusBaselineY = 210;
+constexpr int16_t kIdleStatusRowY      = 185;
+constexpr int16_t kIdleStatusRowH      = 35;
+
+void drawCentered(const char* s, int16_t baseline_y,
+                  uint16_t color, const GFXfont* font) {
+    g_tft.setFont(font);
+    g_tft.setTextColor(color);
+    int16_t  x1, y1;
+    uint16_t w, h;
+    g_tft.getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
+    int16_t cx = (kScreenWidth - static_cast<int16_t>(w)) / 2;
+    if (cx < 0) cx = 0;
+    g_tft.setCursor(cx, baseline_y);
+    g_tft.print(s);
+}
+
+// Compose the clock + date strings for the current moment from the host-
+// supplied unix_ts + utc_offset, advancing via millis() since capture.
+void composeIdleStrings(const QuotaSnapshot& q, uint64_t now_ms,
+                        char* clock_out, size_t clock_sz,
+                        char* date_out,  size_t date_sz) {
+    if (q.unix_ts == 0) {
+        std::strncpy(clock_out, "--:--", clock_sz);
+        clock_out[clock_sz - 1] = '\0';
+        std::strncpy(date_out, "set time via BLE", date_sz);
+        date_out[date_sz - 1] = '\0';
+        return;
+    }
+
+    uint32_t elapsed_s = 0;
+    if (q.time_capture_ms > 0 && now_ms >= q.time_capture_ms) {
+        elapsed_s = static_cast<uint32_t>(
+            (now_ms - q.time_capture_ms) / 1000ULL);
+    }
+    time_t now_unix_utc   = static_cast<time_t>(q.unix_ts) + elapsed_s;
+    time_t now_unix_local = now_unix_utc +
+                            static_cast<time_t>(q.utc_offset_min) * 60;
+
+    struct tm tm_buf;
+    gmtime_r(&now_unix_local, &tm_buf);
+
+    std::snprintf(clock_out, clock_sz, "%02d:%02d",
+                  tm_buf.tm_hour, tm_buf.tm_min);
+
+    static const char* kWday[] = {
+        "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    static const char* kMon[] = {
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    int wday = tm_buf.tm_wday & 7;
+    int mon  = tm_buf.tm_mon  % 12;
+    if (mon < 0) mon = 0;
+    std::snprintf(date_out, date_sz, "%s %s %d %d",
+                  kWday[wday], kMon[mon], tm_buf.tm_mday,
+                  1900 + tm_buf.tm_year);
+}
+
+void drawIdleBody(const QuotaSnapshot& q, uint64_t now_ms,
+                  bool force_full) {
+    char clock_buf[8];
+    char date_buf[24];
+    composeIdleStrings(q, now_ms,
+                       clock_buf, sizeof(clock_buf),
+                       date_buf,  sizeof(date_buf));
+
+    const bool full = force_full || !g_last_idle.initialized;
+    if (full) {
+        g_tft.fillScreen(kColorBg);
+        // Draw header centered too — small title at the top.
+        printAt("idle", kRowMargin, 28, kColorMuted, &FreeSans9pt7b);
+        // Separator line under the date.
+        g_tft.drawFastHLine(kRowMargin * 2, kIdleSeparatorY,
+                            kScreenWidth - 4 * kRowMargin, kColorMuted);
+    }
+
+    if (full || std::strncmp(clock_buf, g_last_idle.clock_text,
+                             sizeof(g_last_idle.clock_text)) != 0) {
+        g_tft.fillRect(0, kIdleClockRowY, kScreenWidth, kIdleClockRowH,
+                       kColorBg);
+        drawCentered(clock_buf, kIdleClockBaselineY,
+                     kColorFg, &FreeSansBold24pt7b);
+        std::strncpy(g_last_idle.clock_text, clock_buf,
+                     sizeof(g_last_idle.clock_text) - 1);
+        g_last_idle.clock_text[sizeof(g_last_idle.clock_text) - 1] = '\0';
+    }
+
+    if (full || std::strncmp(date_buf, g_last_idle.date_text,
+                             sizeof(g_last_idle.date_text)) != 0) {
+        g_tft.fillRect(0, kIdleDateRowY, kScreenWidth, kIdleDateRowH,
+                       kColorBg);
+        drawCentered(date_buf, kIdleDateBaselineY,
+                     kColorMuted, &FreeSans12pt7b);
+        std::strncpy(g_last_idle.date_text, date_buf,
+                     sizeof(g_last_idle.date_text) - 1);
+        g_last_idle.date_text[sizeof(g_last_idle.date_text) - 1] = '\0';
+    }
+
+    if (full || std::strncmp(q.idle_status, g_last_idle.status_text,
+                             sizeof(g_last_idle.status_text)) != 0) {
+        g_tft.fillRect(0, kIdleStatusRowY, kScreenWidth, kIdleStatusRowH,
+                       kColorBg);
+        if (q.idle_status[0] != '\0') {
+            drawCentered(q.idle_status, kIdleStatusBaselineY,
+                         kColorGreen, &FreeSans12pt7b);
+        }
+        std::strncpy(g_last_idle.status_text, q.idle_status,
+                     sizeof(g_last_idle.status_text) - 1);
+        g_last_idle.status_text[sizeof(g_last_idle.status_text) - 1] = '\0';
+    }
+
+    g_last_idle.initialized = true;
+}
+
 void drawApiBody(uint32_t cost_micro_usd, uint32_t duration_s) {
     // Wipe the entire 5h+7d body region.
     g_tft.fillRect(0, k5hRowY,
@@ -397,6 +535,30 @@ void displayInit() {
 void displayRender(const DisplayView& view, bool full_redraw) {
     const QuotaSnapshot& q = view.quota;
     const uint8_t mode = q.mode;
+
+    // ---- idle mode: takes over the whole screen ----
+    if (mode == kSnapshotModeIdle) {
+        // Mode flip from non-idle → idle: wipe everything once, then let
+        // drawIdleBody's per-region diff cache take over.
+        const bool flip_into_idle =
+            (g_last.body_mode_drawn != -1) &&
+            (g_last.body_mode_drawn != static_cast<int8_t>(mode));
+        drawIdleBody(q, view.now_ms, full_redraw || flip_into_idle);
+        if (flip_into_idle) {
+            // Force HUD caches to be invalidated when we come back later.
+            g_last = LastDrawnState{};
+        }
+        g_last.body_mode_drawn = static_cast<int8_t>(mode);
+        return;
+    }
+
+    // Leaving idle mode (coming back into hud)? Reset idle cache and wipe.
+    if (g_last.body_mode_drawn == static_cast<int8_t>(kSnapshotModeIdle)) {
+        g_last_idle = LastDrawnIdle{};
+        g_tft.fillScreen(kColorBg);
+        g_last = LastDrawnState{};
+        full_redraw = true;
+    }
 
     // ---- header ----
     const bool title_changed = std::strncmp(g_last.title, q.title,

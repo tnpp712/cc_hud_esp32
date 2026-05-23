@@ -24,13 +24,19 @@ namespace cc_hud {
 
 using QuotaWriteHandler        = std::function<void(const QuotaSnapshot& parsed)>;
 using ConnectionChangeHandler  = std::function<void(bool connected)>;
+// v4 idle write: host pushes wall clock + status string, no quota fields.
+using IdleWriteHandler = std::function<void(uint32_t unix_ts,
+                                            int16_t  utc_offset_min,
+                                            uint64_t capture_ms,
+                                            const char* idle_status)>;
 
 // Initialise NimBLE, build the quota GATT service, and configure advertising
 // metadata. DOES NOT start advertising — that's separated out so additional
 // services (e.g. OTA) can be registered before advertising goes live.
 // Call bleStartAdvertising() once all services have been added.
 void bleServerInit(const QuotaWriteHandler&       on_write,
-                   const ConnectionChangeHandler& on_conn);
+                   const ConnectionChangeHandler& on_conn,
+                   const IdleWriteHandler&        on_idle);
 
 // Begin BLE advertising. Must be called once, after every other service has
 // been registered onto the server returned by bleGetServer().

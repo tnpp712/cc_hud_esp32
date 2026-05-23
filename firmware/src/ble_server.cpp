@@ -19,6 +19,7 @@ namespace {
 // Cached handler pointers, set once by bleServerInit.
 QuotaWriteHandler       g_on_write;
 ConnectionChangeHandler g_on_conn;
+IdleWriteHandler        g_on_idle;
 
 // Handles owned by the NimBLE stack. We keep raw pointers to push notifies.
 NimBLEServer*         g_server      = nullptr;
@@ -62,6 +63,7 @@ public:
         //   v1 (9 bytes, 0x01)  : used+limit only.
         //   v2 (17 bytes, 0x02) : v1 + 2× u32 reset_in_seconds.
         //   v3 (>=27 bytes, 0x03): v2 + mode + cost + duration + title.
+        //   v4 (>=8 bytes, 0x04) : idle/time push (unix_ts + tz + status).
         const bool is_v1 = (len == kQuotaPayloadLenV1) &&
                            (data[0] == kQuotaMsgTypeV1);
         const bool is_v2 = (len == kQuotaPayloadLenV2) &&
@@ -74,11 +76,62 @@ public:
                 is_v3 = true;
             }
         }
+        bool is_v4 = false;
+        size_t v4_status_len = 0;
+        if (len >= kQuotaPayloadLenV4Base && data[0] == kQuotaMsgTypeV4) {
+            v4_status_len = data[7];
+            if (len == kQuotaPayloadLenV4Base + v4_status_len &&
+                v4_status_len <= kIdleStatusMaxLen) {
+                is_v4 = true;
+            }
+        }
+
+        // v4 path: idle/time push — dispatch and return.
+        if (is_v4) {
+            uint32_t unix_ts   = leU32(data, 1);
+            int16_t  utc_off   = static_cast<int16_t>(leU16(data, 5));
+            char     status[kIdleStatusMaxLen + 1] = {0};
+            if (v4_status_len > 0) {
+                std::memcpy(status, data + 8, v4_status_len);
+            }
+            status[v4_status_len] = '\0';
+            Serial.printf("[BLE] idle write ts=%lu tz=%d status=%s\n",
+                          static_cast<unsigned long>(unix_ts),
+                          static_cast<int>(utc_off), status);
+            if (g_on_idle) {
+                g_on_idle(unix_ts, utc_off,
+                          static_cast<uint64_t>(millis()), status);
+            }
+            bleNotifyState(kStateOk);
+            return;
+        }
+
+        // Force-idle toggle (msg_type 0x05, 2 bytes total).
+        if (len == 2 && data[0] == kQuotaMsgTypeForceIdle) {
+            const bool enter_idle = (data[1] != 0);
+            Serial.printf("[BLE] force-idle cmd: %s\n",
+                          enter_idle ? "ENTER" : "LEAVE");
+            // The force-idle command piggy-backs on the idle handler:
+            // call it with unix_ts=0 / status="" to mean "don't touch
+            // time fields", and set g_force_idle separately via a NULL-
+            // pointer flag-only marker — see main.cpp's onIdleWrite.
+            if (g_on_idle) {
+                // Use a sentinel: utc_offset_min = -32768 means "this
+                // is a force-idle command, not a time push". main.cpp
+                // catches this and sets/clears g_force_idle accordingly.
+                g_on_idle(enter_idle ? 1u : 0u,
+                          /*utc_offset_min=*/-32768,
+                          static_cast<uint64_t>(millis()),
+                          /*status=*/"");
+            }
+            bleNotifyState(kStateOk);
+            return;
+        }
 
         if (!is_v1 && !is_v2 && !is_v3) {
             // Distinguish "wrong length" from "wrong msg_type" for the host.
             if (data[0] == kQuotaMsgTypeV1 || data[0] == kQuotaMsgTypeV2 ||
-                data[0] == kQuotaMsgTypeV3) {
+                data[0] == kQuotaMsgTypeV3 || data[0] == kQuotaMsgTypeV4) {
                 bleNotifyState(kStateErrLen);
             } else {
                 bleNotifyState(kStateErrType);
@@ -158,9 +211,11 @@ ServerCallbacks g_server_cb;
 
 // ---------------------------------------------------------------- public API
 void bleServerInit(const QuotaWriteHandler&       on_write,
-                   const ConnectionChangeHandler& on_conn) {
+                   const ConnectionChangeHandler& on_conn,
+                   const IdleWriteHandler&        on_idle) {
     g_on_write = on_write;
     g_on_conn  = on_conn;
+    g_on_idle  = on_idle;
 
     NimBLEDevice::init(kBleDeviceName);
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
