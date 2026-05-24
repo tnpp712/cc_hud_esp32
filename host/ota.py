@@ -177,7 +177,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--firmware", required=True,
                    help="path to firmware.bin (typically "
                         ".pio/build/esp32s3_nano/firmware.bin)")
-    p.add_argument("--chunk", type=int, default=180,
+    p.add_argument("--chunk", type=int, default=240,
                    help="bytes per BLE write; <= negotiated MTU - 3")
     p.add_argument("--timeout", type=float, default=30,
                    help="connect timeout in seconds")

@@ -56,6 +56,23 @@ constexpr uint8_t kQuotaMsgTypeV4        = 0x04;
 // cmd 0x00 = leave forced idle, cmd 0x01 = enter forced idle.
 constexpr uint8_t kQuotaMsgTypeForceIdle = 0x05;
 
+// Force-mood (debug / preview tool): msg_type 0x06 + 1 byte mood
+// (0..4 → PetMood). 0xFF = release force, fall back to auto.
+constexpr uint8_t kQuotaMsgTypeForceMood = 0x06;
+
+// Pet mood, derived from the highest of {5h%, 7d%} usage. Each mood
+// has its own sprite + walking cadence, so the cat actually feels the
+// load you're putting on Claude Code.
+enum PetMood : int8_t {
+    kPetMoodHappy       = 0,   //  <30% — chill, normal walk
+    kPetMoodCalm        = 1,   //  30-60% — steady
+    kPetMoodTired       = 2,   //  60-80% — slowing down
+    kPetMoodStressed    = 3,   //  80-95% — fast & jittery
+    kPetMoodOverwhelmed = 4,   //  >=95% — stops, cries
+    kPetMoodAuto        = -1,  //  sentinel: derive from quota
+};
+constexpr int8_t kPetMoodCount = 5;
+
 // Idle-mode trigger: switch to the clock screen after this many ms of
 // no v1/v2/v3 quota write. 30 minutes.
 constexpr uint32_t kIdleThresholdMs = 30UL * 60UL * 1000UL;

@@ -30,6 +30,10 @@ volatile bool g_conn_pending   = false;
 volatile bool g_conn_state     = false;
 volatile bool g_alert_pending  = false;  // set true when a 5h/7d crossing >= 95% fired
 volatile bool g_force_idle     = false;  // explicit force-idle latch (msg_type 0x05)
+volatile int8_t g_force_mood   = kPetMoodAuto;  // -1 = compute from quota; else 0..4
+volatile uint32_t g_thinking_until_ms = 0;  // millis() until which we draw the star
+
+constexpr uint32_t kThinkingHoldMs = 90UL * 1000UL;  // 90s window after any quota push
 
 uint32_t g_last_footer_tick = 0;
 
@@ -107,6 +111,9 @@ void onQuotaWrite(const QuotaSnapshot& parsed) {
     g_quota          = next;
     g_redraw_pending = true;
     if (need_flash) g_alert_pending = true;
+    // Any v1/v2/v3 quota push counts as "Claude is doing something".
+    // Refresh the thinking-star window for kThinkingHoldMs from now.
+    g_thinking_until_ms = millis() + kThinkingHoldMs;
     portEXIT_CRITICAL(&g_lock);
 
     if (persistenceSave(next)) {
@@ -305,14 +312,50 @@ void loop() {
         cc_hud::displayUpdateConnection(conn_state);
     }
 
-    // Pet animation tick (idle only). Cheap: early-outs when the eye
-    // frame hasn't changed since the previous tick.
+    // Pet animation tick (idle only). Mood comes from current quota
+    // state — at higher usage % the cat's expression and walking speed
+    // change. Cheap: early-outs when nothing changed since last tick.
     static uint32_t s_last_pet_tick_ms = 0;
     const uint32_t now_pet = millis();
     if (!ota_active && s_was_idle &&
-        now_pet - s_last_pet_tick_ms >= 100) {
+        now_pet - s_last_pet_tick_ms >= 16) {
         s_last_pet_tick_ms = now_pet;
-        cc_hud::displayTickPet(static_cast<uint64_t>(now_pet));
+
+        // Compute mood from the snapshot captured above (snap_for_check).
+        const uint8_t pct_5h = (snap_for_check.limit_5h > 0)
+            ? (uint8_t)((uint32_t)snap_for_check.used_5h * 100u /
+                        snap_for_check.limit_5h) : 0;
+        const uint8_t pct_7d = (snap_for_check.limit_7d > 0)
+            ? (uint8_t)((uint32_t)snap_for_check.used_7d * 100u /
+                        snap_for_check.limit_7d) : 0;
+        const uint8_t pct = pct_5h > pct_7d ? pct_5h : pct_7d;
+
+        cc_hud::PetMood mood;
+        if (cc_hud::g_force_mood != cc_hud::kPetMoodAuto) {
+            mood = static_cast<cc_hud::PetMood>(cc_hud::g_force_mood);
+        } else if (pct >= 95)      mood = cc_hud::kPetMoodOverwhelmed;
+        else if (pct >= 80)        mood = cc_hud::kPetMoodStressed;
+        else if (pct >= 60)        mood = cc_hud::kPetMoodTired;
+        else if (pct >= 30)        mood = cc_hud::kPetMoodCalm;
+        else                       mood = cc_hud::kPetMoodHappy;
+
+        cc_hud::displayTickPet(static_cast<uint64_t>(now_pet), mood);
+    }
+
+    // Claude "thinking" star tick (HUD mode only). Pulsing 8-ray star
+    // in the bottom-right footer corner that signals "Claude is alive".
+    // Driven by g_thinking_until_ms which is refreshed on every quota
+    // write — so as long as the statusline keeps pushing, the star
+    // keeps pulsing. ~30 ms tick = ~33 FPS (smooth sine wave).
+    static uint32_t s_last_star_tick_ms = 0;
+    if (!ota_active && !s_was_idle &&
+        now_pet - s_last_star_tick_ms >= 30) {
+        s_last_star_tick_ms = now_pet;
+        portENTER_CRITICAL(&cc_hud::g_lock);
+        const uint32_t until = cc_hud::g_thinking_until_ms;
+        portEXIT_CRITICAL(&cc_hud::g_lock);
+        const bool thinking = (until != 0) && (now_pet < until);
+        cc_hud::displayTickStar(static_cast<uint64_t>(now_pet), thinking);
     }
 
     // Footer freshness tick.

@@ -11,6 +11,7 @@
 
 #include <Arduino.h>
 
+#include "config.h"        // PetMood enum
 #include "persistence.h"
 
 namespace cc_hud {
@@ -37,11 +38,18 @@ void displayRender(const DisplayView& view, bool full_redraw = false);
 // timestamp and redraws only the footer region.
 void displayTickFooter(const QuotaSnapshot& quota, uint64_t now_ms);
 
-// Pet animation tick (idle screen only). Picks the eye frame for the
-// current millis() and repaints the sprite if it changed. Cheap when
-// the frame hasn't flipped (early-out on cached frame). Call every
-// 100–200 ms from the main loop while in idle mode.
-void displayTickPet(uint64_t now_ms);
+// Pet animation tick (idle screen only). Picks position + eye frame
+// for the current millis() based on the supplied mood, and repaints
+// only when something changed. mood selects the sprite set + the
+// walking cadence. Cheap when nothing changed since the last tick.
+// Call every 16-32 ms from the main loop while in idle mode.
+void displayTickPet(uint64_t now_ms, PetMood mood);
+
+// Claude "thinking" star animation (HUD mode only). Pulsing 8-ray
+// star in the bottom-right corner that signals "Claude is actively
+// processing". Call every ~30 ms from main loop while thinking.
+// Pass thinking=true to draw, thinking=false to erase once.
+void displayTickStar(uint64_t now_ms, bool thinking);
 
 // Update only the header dot to reflect a new connection state. Cheap; called
 // from BLE callbacks.

@@ -7,6 +7,10 @@
 
 #include <NimBLEDevice.h>
 
+extern "C" {
+#include <nimble/nimble/host/include/host/ble_gap.h>  // ble_gap_set_prefered_le_phy
+}
+
 #include <cstring>
 #include <cstddef>
 
@@ -183,9 +187,29 @@ public:
 class ServerCallbacks final : public NimBLEServerCallbacks {
 public:
     void onConnect(NimBLEServer* server) override {
-        (void)server;
         g_connected = true;
         Serial.println("[BLE] connected");
+
+        // Request BLE 5.0 LE 2M PHY: doubles raw PHY rate from 1 Mbps
+        // to 2 Mbps. macOS / iOS hosts generally accept (BLE 5.0+).
+        // Also ask for the maximum LL packet length (DLE) for fewer
+        // per-packet overheads.
+        if (server->getConnectedCount() > 0) {
+            NimBLEConnInfo info = server->getPeerInfo(0);
+            const uint16_t conn = info.getConnHandle();
+
+            // Data Length Extension: 251 byte LL packets at 2120 µs air-time.
+            int rc = ble_gap_set_data_len(conn, 251, 2120);
+            Serial.printf("[BLE] set_data_len rc=%d\n", rc);
+
+            // PHY upgrade: prefer 2M for both directions.
+            rc = ble_gap_set_prefered_le_phy(conn,
+                                              BLE_GAP_LE_PHY_2M_MASK,
+                                              BLE_GAP_LE_PHY_2M_MASK,
+                                              0);
+            Serial.printf("[BLE] request 2M PHY rc=%d (0 = OK, peer may decline)\n", rc);
+        }
+
         if (g_on_conn) {
             g_on_conn(true);
         }
