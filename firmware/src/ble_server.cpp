@@ -24,6 +24,7 @@ namespace {
 QuotaWriteHandler       g_on_write;
 ConnectionChangeHandler g_on_conn;
 IdleWriteHandler        g_on_idle;
+StateWriteHandler       g_on_state;
 
 // Handles owned by the NimBLE stack. We keep raw pointers to push notifies.
 NimBLEServer*         g_server      = nullptr;
@@ -106,6 +107,26 @@ public:
                 g_on_idle(unix_ts, utc_off,
                           static_cast<uint64_t>(millis()), status);
             }
+            bleNotifyState(kStateOk);
+            return;
+        }
+
+        // App-state push (msg_type 0x07, ≥3 bytes).
+        if (len >= 3 && data[0] == kQuotaMsgTypeState) {
+            const uint8_t st = data[1];
+            const uint8_t dl = data[2];
+            if (len < 3 + dl) {
+                bleNotifyState(kStateErrLen);
+                return;
+            }
+            char detail[kAppStateDetailMaxLen + 1] = {0};
+            const size_t copy_n =
+                dl < kAppStateDetailMaxLen ? dl : kAppStateDetailMaxLen;
+            if (copy_n > 0) std::memcpy(detail, data + 3, copy_n);
+            detail[copy_n] = '\0';
+            Serial.printf("[BLE] state=%u detail=%s\n",
+                          static_cast<unsigned>(st), detail);
+            if (g_on_state) g_on_state(static_cast<int8_t>(st), detail);
             bleNotifyState(kStateOk);
             return;
         }
@@ -236,10 +257,12 @@ ServerCallbacks g_server_cb;
 // ---------------------------------------------------------------- public API
 void bleServerInit(const QuotaWriteHandler&       on_write,
                    const ConnectionChangeHandler& on_conn,
-                   const IdleWriteHandler&        on_idle) {
+                   const IdleWriteHandler&        on_idle,
+                   const StateWriteHandler&       on_state) {
     g_on_write = on_write;
     g_on_conn  = on_conn;
     g_on_idle  = on_idle;
+    g_on_state = on_state;
 
     NimBLEDevice::init(kBleDeviceName);
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);

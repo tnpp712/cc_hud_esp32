@@ -29,6 +29,10 @@ using IdleWriteHandler = std::function<void(uint32_t unix_ts,
                                             int16_t  utc_offset_min,
                                             uint64_t capture_ms,
                                             const char* idle_status)>;
+// v7 app-state write: host (Claude Code hooks → statusline) pushes the
+// current app state. `state` is one of AppState (config.h). `detail` is
+// an ASCII tool name when state == kAppStateTool, empty otherwise.
+using StateWriteHandler = std::function<void(int8_t state, const char* detail)>;
 
 // Initialise NimBLE, build the quota GATT service, and configure advertising
 // metadata. DOES NOT start advertising — that's separated out so additional
@@ -36,7 +40,8 @@ using IdleWriteHandler = std::function<void(uint32_t unix_ts,
 // Call bleStartAdvertising() once all services have been added.
 void bleServerInit(const QuotaWriteHandler&       on_write,
                    const ConnectionChangeHandler& on_conn,
-                   const IdleWriteHandler&        on_idle);
+                   const IdleWriteHandler&        on_idle,
+                   const StateWriteHandler&       on_state);
 
 // Begin BLE advertising. Must be called once, after every other service has
 // been registered onto the server returned by bleGetServer().

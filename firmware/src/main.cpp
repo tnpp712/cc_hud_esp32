@@ -35,6 +35,10 @@ volatile uint32_t g_thinking_until_ms = 0;  // millis() until which we draw the 
 
 constexpr uint32_t kThinkingHoldMs = 90UL * 1000UL;  // 90s window after any quota push
 
+// App-state, pushed by Claude Code hooks via msg_type 0x07.
+volatile int8_t g_app_state = kAppStateUnset;
+char            g_app_state_detail[kAppStateDetailMaxLen + 1] = {0};
+
 uint32_t g_last_footer_tick = 0;
 
 // Compute percent (mirrors the helper in display.cpp; keeping it local avoids
@@ -168,6 +172,21 @@ void onIdleWrite(uint32_t unix_ts,
     }
 }
 
+// v7 app-state write: Claude Code hook → host script → BLE → here.
+// `state` is one of AppState (0..3). `detail` is the tool name when
+// state == kAppStateTool, empty otherwise. We just stash it for the
+// main loop's state tick to pick up.
+void onStateWrite(int8_t state, const char* detail) {
+    portENTER_CRITICAL(&g_lock);
+    g_app_state = state;
+    std::strncpy(g_app_state_detail, detail,
+                 sizeof(g_app_state_detail) - 1);
+    g_app_state_detail[sizeof(g_app_state_detail) - 1] = '\0';
+    portEXIT_CRITICAL(&g_lock);
+    Serial.printf("[STATE] %d (%s)\n",
+                  static_cast<int>(state), detail);
+}
+
 }  // namespace cc_hud
 
 // ============================================================== Arduino ===
@@ -221,7 +240,8 @@ void setup() {
     //   3. bleStartAdvertising — finally make us discoverable
     cc_hud::bleServerInit(cc_hud::onQuotaWrite,
                           cc_hud::onConnChange,
-                          cc_hud::onIdleWrite);
+                          cc_hud::onIdleWrite,
+                          cc_hud::onStateWrite);
     cc_hud::otaServerInit(cc_hud::bleGetServer());
     cc_hud::bleStartAdvertising();
 
@@ -342,20 +362,40 @@ void loop() {
         cc_hud::displayTickPet(static_cast<uint64_t>(now_pet), mood);
     }
 
-    // Claude "thinking" star tick (HUD mode only). Pulsing 8-ray star
-    // in the bottom-right footer corner that signals "Claude is alive".
-    // Driven by g_thinking_until_ms which is refreshed on every quota
-    // write — so as long as the statusline keeps pushing, the star
-    // keeps pulsing. ~30 ms tick = ~33 FPS (smooth sine wave).
-    static uint32_t s_last_star_tick_ms = 0;
+    // App-state tick (HUD mode only). Driven by g_app_state which is
+    // set by msg_type 0x07 push from Claude Code hooks via host. ~30 ms
+    // cadence = ~33 FPS, only redraws when something actually changes.
+    // Idle/Stop falls back to the legacy "thinking" GIF for 90 s after
+    // a quota write if no app state has ever been pushed (so devices
+    // without hooks configured still show liveness).
+    static uint32_t s_last_state_tick_ms = 0;
     if (!ota_active && !s_was_idle &&
-        now_pet - s_last_star_tick_ms >= 30) {
-        s_last_star_tick_ms = now_pet;
+        now_pet - s_last_state_tick_ms >= 30) {
+        s_last_state_tick_ms = now_pet;
+
+        cc_hud::AppState eff_state;
+        char eff_detail[cc_hud::kAppStateDetailMaxLen + 1];
         portENTER_CRITICAL(&cc_hud::g_lock);
+        const int8_t st_raw = cc_hud::g_app_state;
+        std::strncpy(eff_detail, cc_hud::g_app_state_detail,
+                     sizeof(eff_detail));
+        eff_detail[sizeof(eff_detail) - 1] = '\0';
         const uint32_t until = cc_hud::g_thinking_until_ms;
         portEXIT_CRITICAL(&cc_hud::g_lock);
-        const bool thinking = (until != 0) && (now_pet < until);
-        cc_hud::displayTickStar(static_cast<uint64_t>(now_pet), thinking);
+
+        if (st_raw == cc_hud::kAppStateUnset) {
+            // No hook has ever pushed → use legacy thinking-window logic
+            // so things still look alive without hook setup.
+            const bool thinking = (until != 0) && (now_pet < until);
+            eff_state = thinking ? cc_hud::kAppStateThinking
+                                  : cc_hud::kAppStateIdle;
+            eff_detail[0] = '\0';
+        } else {
+            eff_state = static_cast<cc_hud::AppState>(st_raw);
+        }
+
+        cc_hud::displayTickState(static_cast<uint64_t>(now_pet),
+                                  eff_state, eff_detail);
     }
 
     // Footer freshness tick.

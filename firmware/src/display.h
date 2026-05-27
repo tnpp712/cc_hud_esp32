@@ -51,6 +51,15 @@ void displayTickPet(uint64_t now_ms, PetMood mood);
 // Pass thinking=true to draw, thinking=false to erase once.
 void displayTickStar(uint64_t now_ms, bool thinking);
 
+// App-state badge (HUD mode only). Replaces the thinking-star slot
+// and shows what Claude Code is doing right now:
+//   kAppStateIdle      → erase, leave blank
+//   kAppStateThinking  → animated splatter GIF (same as Claude logo loader)
+//   kAppStateTool      → tool icon (mapped from `detail` tool name)
+//   kAppStateWaiting   → pulsing orange dot
+// Call every ~30 ms from main loop when in HUD mode.
+void displayTickState(uint64_t now_ms, AppState state, const char* detail);
+
 // Update only the header dot to reflect a new connection state. Cheap; called
 // from BLE callbacks.
 void displayUpdateConnection(bool connected);

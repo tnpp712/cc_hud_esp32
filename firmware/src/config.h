@@ -60,6 +60,24 @@ constexpr uint8_t kQuotaMsgTypeForceIdle = 0x05;
 // (0..4 → PetMood). 0xFF = release force, fall back to auto.
 constexpr uint8_t kQuotaMsgTypeForceMood = 0x06;
 
+// App-state push (msg_type 0x07, ≥3 bytes):
+//   offset 0: u8 msg_type = 0x07
+//   offset 1: u8 state (see AppState below)
+//   offset 2: u8 detail_len (0..15)
+//   offset 3+: ASCII detail (tool name when state == kAppStateTool)
+// Pushed by Claude Code hooks via host wrapper. Each push completely
+// replaces the previous app state.
+constexpr uint8_t kQuotaMsgTypeState     = 0x07;
+constexpr size_t  kAppStateDetailMaxLen  = 15;
+
+enum AppState : int8_t {
+    kAppStateIdle     = 0,  // Stop hook — Claude finished its turn
+    kAppStateThinking = 1,  // UserPromptSubmit / PostToolUse
+    kAppStateTool     = 2,  // PreToolUse — detail = tool name
+    kAppStateWaiting  = 3,  // Notification — waiting on permission / no resp
+    kAppStateUnset    = -1, // boot-time sentinel
+};
+
 // Pet mood, derived from the highest of {5h%, 7d%} usage. Each mood
 // has its own sprite + walking cadence, so the cat actually feels the
 // load you're putting on Claude Code.

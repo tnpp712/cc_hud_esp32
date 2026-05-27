@@ -49,3 +49,6 @@ session/
 *.csv
 # Exception: hardware partition tables are firmware source-of-truth.
 !firmware/partitions_ota_8mb.csv
+
+# gpt-image raw output (we keep sliced icons in firmware/src/tool_icons.h)
+gen_image/

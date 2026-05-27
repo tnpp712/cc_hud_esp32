@@ -1,0 +1,56 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/firshme/Desktop/work/cc_hud/host/cchud-hook.sh thinking"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/firshme/Desktop/work/cc_hud/host/cchud-hook.sh tool"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/firshme/Desktop/work/cc_hud/host/cchud-hook.sh thinking"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/firshme/Desktop/work/cc_hud/host/cchud-hook.sh idle"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/firshme/Desktop/work/cc_hud/host/cchud-hook.sh waiting"
+          }
+        ]
+      }
+    ]
+  }
+}
