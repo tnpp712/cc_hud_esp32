@@ -56,13 +56,35 @@ fi
 # Cache the new key BEFORE forking so back-to-back hook calls dedup.
 echo "$KEY" > "$LAST_FILE"
 
-# Fire-and-forget background push. setsid + disown so the hook returns
-# instantly even if BLE takes a second to connect.
+# Single-flight lock: only one BLE push runs at a time. macOS BLE only
+# allows one CoreBluetooth client connection per peripheral; if hooks
+# spawn many concurrent pushers, they race each other and most fail
+# with "Device not found". mkdir is atomic on POSIX, so we use it as
+# a cheap mutex.
+LOCK_DIR="${CCHUD_STATE_LOCK:-/tmp/cchud-push.lock}"
+
 (
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+        # Another pusher is already going. Skip — the next state
+        # change will retry, and dedup makes that cheap.
+        exit 0
+    fi
+    trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT INT TERM
+
+    # Re-read the current desired state from the cache file. The state
+    # we were called with might be stale by the time we get the lock;
+    # always push whatever the latest cached key says.
+    LATEST_KEY="$(cat "$LAST_FILE" 2>/dev/null || echo "$KEY")"
+    L_STATE="${LATEST_KEY%%:*}"
+    case "$LATEST_KEY" in
+        *:*) L_DETAIL="${LATEST_KEY#*:}" ;;
+        *)   L_DETAIL="" ;;
+    esac
+
     "$PY" "$PUSH" \
         --address "$ADDR" \
-        --state "$STATE" \
-        --detail "$DETAIL" \
+        --state "$L_STATE" \
+        --detail "$L_DETAIL" \
         --timeout "$TIMEOUT" \
         </dev/null >>"$LOG" 2>&1
 ) &
