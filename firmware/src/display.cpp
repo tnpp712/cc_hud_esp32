@@ -358,6 +358,9 @@ constexpr uint32_t kIdlePetRetargetMaxMs   = 5500;
 
 // Claude Code mascot orange (#D77757 → RGB565).
 constexpr uint16_t kColorClaude = 0xDBAA;
+// Dimmed Claude orange (~28% intensity) for the idle indicator —
+// matches the Claude iOS app's "I'm here but resting" look.
+constexpr uint16_t kColorClaudeDim = 0x49E2;
 
 // Claude "thinking" splatter star — 12 thick rays from a dense centre,
 // each with its own base length (irregular, hand-drawn feel). Subtle
@@ -829,6 +832,24 @@ void eraseClaudeStar() {
                    kStarFrameW, kStarFrameH, kColorBg);
 }
 
+// Idle indicator — three horizontal dots, dim orange. Reads as "ready
+// but at rest", like typing-dots that aren't actively typing. Replaces
+// the spiky dim-splatter look that felt hostile.
+void drawIdleDots() {
+    constexpr int kDotR     = 3;
+    constexpr int kDotGap   = 11;   // centre-to-centre spacing
+    constexpr int kDotCount = 3;
+
+    g_tft.fillRect(kStarCx - kIconW / 2, kStarCy - kIconH / 2,
+                   kIconW, kIconH, kColorBg);
+
+    const int total_w = (kDotCount - 1) * kDotGap;
+    const int x0 = kStarCx - total_w / 2;
+    for (int i = 0; i < kDotCount; ++i) {
+        g_tft.fillCircle(x0 + i * kDotGap, kStarCy, kDotR, kColorClaudeDim);
+    }
+}
+
 // Cache so we erase exactly once when thinking goes false.
 bool g_star_was_drawn = false;
 
@@ -979,9 +1000,8 @@ void displayTickState(uint64_t now_ms, AppState state, const char* detail) {
     switch (state) {
         case kAppStateIdle: {
             if (state_changed) {
-                // Wipe the slot back to bg.
-                g_tft.fillRect(kStarCx - kIconW / 2, kStarCy - kIconH / 2,
-                               kIconW, kIconH, kColorBg);
+                // Three dim dots — "ready, resting".
+                drawIdleDots();
             }
             break;
         }
