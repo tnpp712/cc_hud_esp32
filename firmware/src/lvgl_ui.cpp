@@ -31,6 +31,11 @@
 #include "logo_brand.h"
 #include "tool_icons.h"
 
+// Generated 20 px CJK subset (weather terms + major cities + full
+// ASCII + °/℃/℉). See tools note in the commit: regenerate with
+// lv_font_conv if the glyph set needs to grow.
+LV_FONT_DECLARE(font_cn_20);
+
 namespace cc_hud {
 
 namespace {
@@ -354,8 +359,10 @@ void buildIdle() {
     lv_obj_set_style_bg_color(sep, C_MUTED, 0);
     lv_obj_set_style_border_width(sep, 0, 0);
 
-    g_status = mkLabel(g_scr_idle, &lv_font_montserrat_14, C_GREEN);
-    lv_obj_align(g_status, LV_ALIGN_TOP_MID, 0, 192);
+    // CJK-capable font so the weather string can be Chinese
+    // ("晴 +25°C 北京"). Falls back over the same glyphs for ASCII.
+    g_status = mkLabel(g_scr_idle, &font_cn_20, C_GREEN);
+    lv_obj_align(g_status, LV_ALIGN_TOP_MID, 0, 190);
     lv_label_set_text(g_status, "");
 
     lv_timer_create(pet_timer_cb, 30, nullptr);

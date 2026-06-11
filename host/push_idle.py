@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import struct
 import sys
 import time
@@ -45,46 +46,71 @@ def _log(msg: str, verbose: bool) -> None:
         print(msg, file=sys.stderr)
 
 
+# WWO weather-code → Chinese condition. wttr.in's own lang_zh data is
+# broken (returns English), so we translate the numeric code locally.
+# Phrasing is constrained to the glyph subset baked into the firmware
+# font (firmware/src/font_cn_20.c) — regenerate the font before adding
+# characters outside that set.
+WWO_CN = {
+    113: "晴", 116: "多云", 119: "阴", 122: "阴天",
+    143: "薄雾", 176: "零星小雨", 179: "零星小雪", 182: "零星雨夹雪",
+    185: "零星冻毛毛雨", 200: "雷阵雨", 227: "风雪", 230: "暴风雪",
+    248: "雾", 260: "冻雾", 263: "零星毛毛雨", 266: "毛毛雨",
+    281: "冻毛毛雨", 284: "强冻毛毛雨", 293: "零星小雨", 296: "小雨",
+    299: "间歇中雨", 302: "中雨", 305: "间歇大雨", 308: "大雨",
+    311: "冻雨", 314: "强冻雨", 317: "小雨夹雪", 320: "中雨夹雪",
+    323: "零星小雪", 326: "小雪", 329: "间歇中雪", 332: "中雪",
+    335: "间歇大雪", 338: "大雪", 350: "冰雹", 353: "小阵雨",
+    356: "大阵雨", 359: "暴雨", 362: "小阵雨夹雪", 365: "大阵雨夹雪",
+    368: "小阵雪", 371: "大阵雪", 374: "小冰雹", 377: "大冰雹",
+    386: "局部雷阵雨", 389: "雷暴雨", 392: "雷阵雪", 395: "暴风雪",
+}
+
+
 def fetch_weather(city: str, timeout: float = 5.0) -> str:
-    """Fetch a short weather string from wttr.in. No API key required.
+    """Fetch weather from wttr.in (j1 JSON) and build a Chinese status.
 
-    Returns "" if anything goes wrong (network error, timeout, empty
-    response). Caller falls back to whatever was passed via --status.
-
-    The wttr.in format used is %C+%t — condition text + temperature, e.g.
-    "Light rain shower +12°C". The device's font is ASCII-only, so we
-    normalise the degree sign to a plain "C" / "F" and drop anything
-    else that isn't ASCII.
+    Returns e.g. "多云 +16°C 北京" (city echoed as given — pass a
+    Chinese city name via --weather-city/北京 for an all-CJK line).
+    Returns "" on any failure; caller falls back to --status.
     """
-    url = (
-        f"https://wttr.in/{urllib.parse.quote(city)}"
-        f"?format=%C+%t&m"  # &m = metric units
-    )
+    url = f"https://wttr.in/{urllib.parse.quote(city)}?format=j1"
     try:
         req = urllib.request.Request(
             url, headers={"User-Agent": "curl/cc-hud"}
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            text = resp.read().decode("utf-8", errors="replace")
+            data = json.load(resp)
+        cc = data["current_condition"][0]
+        code = int(cc["weatherCode"])
+        temp = int(cc["temp_C"])
     except Exception as exc:  # noqa: BLE001 — best-effort fetch
         print(f"weather fetch failed: {exc}", file=sys.stderr)
         return ""
-    text = (
-        text.replace("°C", "C")
-            .replace("°F", "F")
-            .replace("°", "")
-            .strip()
-    )
-    text = text.encode("ascii", errors="ignore").decode().strip()
-    # wttr sometimes returns the city name on error ("Unknown location").
-    # Bail if the response doesn't look like a weather phrase.
-    if not text or "Unknown" in text or "ERROR" in text.upper():
-        return ""
-    return text[:MAX_STATUS_LEN]
+    cond = WWO_CN.get(code)
+    if cond is None:
+        # Unknown code — fall back to the English description.
+        try:
+            cond = cc["weatherDesc"][0]["value"].strip()
+        except Exception:  # noqa: BLE001
+            cond = "?"
+    text = f"{cond} {temp:+d}°C {city}".strip()
+    return _utf8_truncate(text, MAX_STATUS_LEN).decode("utf-8")
+
+
+def _utf8_truncate(s: str, max_bytes: int) -> bytes:
+    """Encode to UTF-8, truncating on a character boundary ≤ max_bytes."""
+    b = s.encode("utf-8")
+    while len(b) > max_bytes:
+        s = s[:-1]
+        b = s.encode("utf-8")
+    return b
 
 
 def _pack_v4(unix_ts: int, utc_offset_min: int, status: str) -> bytes:
-    status_b = status.encode("ascii", errors="replace")[:MAX_STATUS_LEN]
+    # UTF-8 so Chinese weather strings work — the firmware renders the
+    # status with a CJK-capable LVGL font. 32 bytes ≈ 10 CJK chars.
+    status_b = _utf8_truncate(status, MAX_STATUS_LEN)
     return struct.pack("<BIhB", MSG_TYPE_V4, unix_ts, utc_offset_min, len(status_b)) + status_b
 
 
