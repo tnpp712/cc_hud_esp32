@@ -29,10 +29,12 @@
  * spike misbehaves. */
 #define LV_USE_LOG 0
 
-/* Fonts. Montserrat 14 is the LVGL default; 24 for section text and
- * 48 for the idle-screen clock once we migrate it. ~60 KB flash total
- * for the three — affordable at 21% flash usage. */
+/* Fonts. 14 footer/date · 18 row labels + countdown sublabels ·
+ * 20 plan title · 24 percent numbers · 48 idle clock. Each size is
+ * roughly 15-20 KB flash; all five fit comfortably at 33% usage. */
 #define LV_FONT_MONTSERRAT_14 1
+#define LV_FONT_MONTSERRAT_18 1
+#define LV_FONT_MONTSERRAT_20 1
 #define LV_FONT_MONTSERRAT_24 1
 #define LV_FONT_MONTSERRAT_48 1
 

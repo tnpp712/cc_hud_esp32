@@ -259,32 +259,37 @@ uint32_t liveRemaining(uint32_t captured_s, uint64_t cap_ms, uint64_t now_ms) {
 void buildHud() {
     g_scr_hud = mkPlainScreen();
 
-    g_title = mkLabel(g_scr_hud, &lv_font_montserrat_14, C_FG);
-    lv_obj_set_pos(g_title, 8, 6);
+    // Vertical budget (240 px): title 4..30, 5H block 36..110,
+    // 7D block 116..190, logo/state 192..232, footer 214..230.
+    g_title = mkLabel(g_scr_hud, &lv_font_montserrat_20, C_FG);
+    lv_obj_set_pos(g_title, 8, 4);
     lv_label_set_text(g_title, "CC HUD");
+    // Clip long plan names before they reach the BLE dot.
+    lv_obj_set_width(g_title, 196);
+    lv_label_set_long_mode(g_title, LV_LABEL_LONG_CLIP);
 
     g_ble_dot = mkCircle(g_scr_hud, 14, C_DOT_IDLE);
-    lv_obj_set_pos(g_ble_dot, 212, 6);
+    lv_obj_set_pos(g_ble_dot, 212, 8);
 
     // 5H row
-    g_row5_lbl = mkLabel(g_scr_hud, &lv_font_montserrat_14, C_FG);
-    lv_obj_set_pos(g_row5_lbl, 8, 42);
+    g_row5_lbl = mkLabel(g_scr_hud, &lv_font_montserrat_18, C_FG);
+    lv_obj_set_pos(g_row5_lbl, 8, 36);
     lv_label_set_text(g_row5_lbl, "5H");
     g_row5_pct = mkLabel(g_scr_hud, &lv_font_montserrat_24, C_FG);
-    lv_obj_align(g_row5_pct, LV_ALIGN_TOP_RIGHT, -8, 36);
-    g_row5_bar = mkBar(g_scr_hud, 8, 78, 224, 14);
-    g_row5_sub = mkLabel(g_scr_hud, &lv_font_montserrat_14, C_MUTED);
-    lv_obj_set_pos(g_row5_sub, 8, 98);
+    lv_obj_align(g_row5_pct, LV_ALIGN_TOP_RIGHT, -8, 32);
+    g_row5_bar = mkBar(g_scr_hud, 8, 70, 224, 14);
+    g_row5_sub = mkLabel(g_scr_hud, &lv_font_montserrat_18, C_MUTED);
+    lv_obj_set_pos(g_row5_sub, 8, 88);
 
     // 7D row
-    g_row7_lbl = mkLabel(g_scr_hud, &lv_font_montserrat_14, C_FG);
-    lv_obj_set_pos(g_row7_lbl, 8, 126);
+    g_row7_lbl = mkLabel(g_scr_hud, &lv_font_montserrat_18, C_FG);
+    lv_obj_set_pos(g_row7_lbl, 8, 116);
     lv_label_set_text(g_row7_lbl, "7D");
     g_row7_pct = mkLabel(g_scr_hud, &lv_font_montserrat_24, C_FG);
-    lv_obj_align(g_row7_pct, LV_ALIGN_TOP_RIGHT, -8, 120);
-    g_row7_bar = mkBar(g_scr_hud, 8, 162, 224, 14);
-    g_row7_sub = mkLabel(g_scr_hud, &lv_font_montserrat_14, C_MUTED);
-    lv_obj_set_pos(g_row7_sub, 8, 182);
+    lv_obj_align(g_row7_pct, LV_ALIGN_TOP_RIGHT, -8, 112);
+    g_row7_bar = mkBar(g_scr_hud, 8, 150, 224, 14);
+    g_row7_sub = mkLabel(g_scr_hud, &lv_font_montserrat_18, C_MUTED);
+    lv_obj_set_pos(g_row7_sub, 8, 168);
 
     // API-mode widgets (hidden in sub mode)
     g_api_cost = mkLabel(g_scr_hud, &lv_font_montserrat_48, C_GREEN);
