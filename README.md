@@ -22,11 +22,86 @@ streams in over BLE — the device reboots into the new image on completion.*
 | Layer | What |
 |---|---|
 | Hardware | ESP32-S3-Nano (R8, 8 MB Flash + 8 MB OPI PSRAM) + 1.54" 240×240 IPS ST7789 + LiPo 503040 + TP4056 + MT3608 |
-| Firmware | PlatformIO · Arduino-ESP32 · Adafruit_GFX/ST7789 · NimBLE-Arduino · NVS · `Update` library for BLE OTA |
-| Host | Python 3.11+ · bleak · shell wrapper for Claude Code statusline · Python OTA uploader |
-| Enclosure | One-piece 3D-printed case + drop-in back cover, parametric build123d sources, Bambu-compatible 3MF |
-| BLE protocol | Custom GATT service, v3 payload supports both subscription mode (5H/7D + reset countdown + plan title) and API mode (cost + session duration) |
+| Firmware | PlatformIO · Arduino-ESP32 · **LVGL 9** (all UI) · Adafruit_ST7789 (panel driver + OTA screen) · NimBLE-Arduino · NVS · `Update` library for BLE OTA |
+| Host | Python 3.11+ · bleak · shell wrappers for Claude Code statusline + hooks · Python OTA uploader |
+| Enclosure | One-piece 3D-printed case + drop-in back cover (+ optional TPU sleeve), parametric build123d sources, Bambu-compatible 3MF |
+| BLE protocol | Custom GATT service; quota v1–v3 (subscription 5H/7D + reset countdown + plan title, or API cost + duration), v4 wall-clock/weather push, 0x05–0x07 control messages (force-idle / force-mood / live Claude Code app-state) |
 | OTA | Second GATT service streams firmware bytes into the inactive slot; arduino-esp32 `Update` library handles the slot switch + reboot |
+
+---
+
+## Firmware architecture (LVGL 9)
+
+All regular UI renders through LVGL 9; the legacy hand-drawn renderer
+(~1300 lines of manual coordinate math + diff caches) was deleted after
+the migration proved out on hardware. `display.cpp` keeps only what must
+work when LVGL is *not* ticking: panel bring-up and the OTA screen.
+
+```
+ BLE callbacks (NimBLE task)                Arduino loop (main.cpp)
+┌─────────────────────────────┐            ┌──────────────────────────────┐
+│ 0x01–0x03  quota write      │ portMUX-   │ drain shared state           │
+│ 0x04       wall-clock/wx    │ guarded    │ derive idle / mood / state   │
+│ 0x05       force-idle       │ globals    │ build LvglUiModel            │
+│ 0x06       force-mood       │ ─────────► │ lvglUiApply(model)  ← diffs  │
+│ 0x07       Claude app-state │            │ lv_timer_handler()           │
+└─────────────────────────────┘            └──────────────┬───────────────┘
+                                                          │ partial render
+                                           ┌──────────────▼───────────────┐
+                                           │ LVGL 9                       │
+                                           │ 2 × 40-row SRAM draw buffers │
+                                           │ (no PSRAM dependency)        │
+                                           │ flush_cb                     │
+                                           └──────────────┬───────────────┘
+                                                          │ drawRGBBitmap
+                                           ┌──────────────▼───────────────┐
+                                           │ Adafruit_ST7789 · SPI 40 MHz │
+                                           └──────────────────────────────┘
+```
+
+Design decisions:
+
+- **`main.cpp` is the single data owner.** BLE callbacks only stash
+  values into portMUX-guarded globals. Once per loop, `main` drains
+  them, derives idle mode / pet mood / app state, and hands one
+  `LvglUiModel` to `lvglUiApply()`. The apply function diffs every
+  field against what's already on screen, so a no-change tick costs a
+  few `strcmp`s — no LVGL invalidation happens unless a value moved.
+- **Two screens, fade transition.** HUD (plan title, BLE dot, 5H/7D
+  bars with green/yellow/red tiers, used/limit + live reset countdown,
+  API-cost variant, freshness footer, brand logo, app-state slot) and
+  IDLE (mood-reactive walking ASCII pet, Montserrat-48 clock, date,
+  weather status). `lv_screen_load_anim` fades between them.
+- **App-state slot** (footer right, 40×40): thinking → 8-frame
+  splatter GIF via `lv_animimg`; tool → one of 10 icons picked by
+  longest-prefix match on the tool name (`mcp__*` catch-all);
+  waiting → pulsing dot via `lv_anim`; idle → three dim dots. Driven
+  live by Claude Code hooks (`host/cchud-hook.sh`, msg_type 0x07).
+- **No PSRAM needed.** This board's OPI PSRAM is disabled (boot-loop
+  issues on the clone), so LVGL runs in `RENDER_MODE_PARTIAL` with two
+  static 19.2 KB SRAM buffers. Pixels go out through Adafruit's
+  `drawRGBBitmap` — native-endian RGB565, no byte swap.
+- **Assets cost zero extra flash.** The brand logo (40×40), 10 tool
+  icons (40×40) and 8 thinking-GIF frames (40×40) are the same RGB565
+  arrays the legacy renderer used, wrapped in `lv_image_dsc_t` at init.
+  Regeneration tooling lives in `firmware/tools/` (`slice_icons.py`,
+  `gif_to_buffer.py`, `generate_star_frames.py`).
+- **Fonts**: Montserrat 14/18/20/24/48 (built-in, enabled in
+  `firmware/include/lv_conf.h`) + `font_cn_20.c`, a generated 20 px CJK
+  subset (full ASCII + °℃℉ + 136 chars covering WWO weather phrases and
+  major Chinese city names) so the idle weather line renders Chinese.
+  Regenerate with `lv_font_conv` when the glyph set needs to grow.
+- **Alert without blocking.** The ≥95 % usage flash is an `lv_anim`
+  opacity pulse on a top-layer overlay (the legacy version blocked the
+  main loop for 5 s).
+- **OTA screen stays out of LVGL.** While firmware streams in, the BLE
+  OTA task draws its progress bar directly via Adafruit calls and the
+  main loop stops pumping `lv_timer_handler()` (gated on
+  `displayIsOtaActive()`). The device reboots on completion, so the two
+  render paths never fight.
+
+Resource usage: ~1.1 MB flash (34 % of the 3 MB OTA slot), ~131 KB RAM
+(40 %, includes LVGL's 48 KB heap + both draw buffers).
 
 ---
 
@@ -247,6 +322,21 @@ fi
 For API-mode users (no `rate_limits` in the statusline JSON), the wrapper
 also accepts `CCHUD_MODE=api`, `CCHUD_COST_USD`, `CCHUD_DURATION_S`.
 
+Two optional extras:
+
+- **Idle weather** — export `CCHUD_WEATHER_CITY=北京` (any wttr.in
+  location; Chinese names render natively) and the statusline piggy-back
+  (`cchud-idle.sh`, rate-limited to 10 min) keeps the idle screen's
+  clock calibrated and its weather line fresh, e.g. `多云 +16°C 北京`.
+- **Live app-state mirroring** — merge `host/settings.hooks.example.json`
+  into `~/.claude/settings.json`. Five Claude Code hooks
+  (UserPromptSubmit / PreToolUse / PostToolUse / Stop / Notification)
+  call `cchud-hook.sh`, which dedups and BLE-pushes msg_type 0x07 — the
+  footer slot then shows what Claude is doing in real time (thinking
+  GIF, per-tool icon, waiting pulse, idle dots). The hook holds a
+  single-flight `mkdir` lock so rapid tool chains can't race the one
+  CoreBluetooth connection macOS allows.
+
 ### 6. OTA upgrade (no more USB)
 
 After the first USB flash, every subsequent firmware update goes over
@@ -265,14 +355,25 @@ device reboots into the new firmware on the END command.
 
 ---
 
-## BLE protocol (v3 summary)
+## BLE protocol
 
 Service UUID: `12345678-aaaa-bbbb-cccc-1234567890ab`
 
 | Characteristic | UUID | Properties | Purpose |
 |---|---|---|---|
-| Quota | `…0a1` | Write / WriteNoResp | Push the 27-bytes-plus-title payload |
+| Quota | `…0a1` | Write / WriteNoResp | All message types below |
 | State | `…0a2` | Read / Notify | ACK / error feedback for each write |
+
+Message types on the Quota characteristic (first byte routes):
+
+| Type | Payload | Meaning | Host CLI |
+|---|---|---|---|
+| `0x01`–`0x02` | 9 / 17 B | Legacy quota (used/limit, + reset countdowns) | `push_quota.py` |
+| `0x03` | 27 B + title | Quota v3: mode (sub/api), cost, duration, plan title | `push_quota.py` |
+| `0x04` | 8 B + status | Wall-clock (unix + tz) + UTF-8 weather/status string for the idle screen | `push_idle.py` |
+| `0x05` | 2 B | Force-idle latch on/off (preview the clock screen) | `force_idle.py` |
+| `0x06` | 2 B | Force pet mood 0–4 / auto | `demo_moods.py` |
+| `0x07` | 3 B + tool name | Live Claude Code app-state: idle / thinking / tool / waiting | `push_state.py` via `cchud-hook.sh` |
 
 OTA service: `12345678-aaaa-bbbb-cccc-1234567890bb`
 
@@ -294,22 +395,41 @@ revert that.
 ```
 cc_hud/
 ├── README.md                       this file
-├── cc_hud_case.py                  parametric build123d source (main shell)
-├── cc_hud_case.3mf                 Bambu-ready main shell
-├── cc_hud_case.step                CAD-portable backup (main shell)
-├── cc_hud_back_cover.py            parametric build123d source (back cover)
-├── cc_hud_back_cover.3mf           Bambu-ready back cover
-├── cc_hud_back_cover.step          CAD-portable backup (back cover)
+├── cc_hud_case.py / .3mf / .step   main shell (parametric build123d + exports)
+├── cc_hud_back_cover.py/.3mf/.step back cover with TP4056 pocket
+├── cc_hud_tpu_sleeve.py/.3mf/.step optional slip-on TPU bumper (logo cut-outs)
 ├── firmware/                       PlatformIO project (Arduino-ESP32)
 │   ├── platformio.ini
 │   ├── partitions_ota_8mb.csv      dual-app OTA partition table
-│   ├── sketch_hello/               minimal SPI smoke-test sketch
-│   └── src/                        BLE server, OTA server, display, persistence, main
+│   ├── include/lv_conf.h           LVGL 9 config (fonts, buffers, refresh)
+│   ├── tools/                      asset pipelines
+│   │   ├── slice_icons.py          icon grid PNG → 40×40 RGB565 header
+│   │   ├── gif_to_buffer.py        any animated GIF → frame header
+│   │   └── generate_star_frames.py programmatic splatter-star frames
+│   └── src/
+│       ├── main.cpp                data owner: BLE flags → LvglUiModel
+│       ├── lvgl_ui.{h,cpp}         all UI: HUD + idle screens, state slot
+│       ├── display.{h,cpp}         panel init + OTA screen (non-LVGL)
+│       ├── ble_server.{h,cpp}      GATT server, msg-type routing
+│       ├── ota_server.{h,cpp}      BLE OTA service → Update library
+│       ├── persistence.{h,cpp}     NVS save/restore of the last snapshot
+│       ├── config.h                pins, UUIDs, enums, thresholds
+│       ├── font_cn_20.c            generated 20 px CJK font subset
+│       ├── tool_icons.h            generated tool icons + name→icon map
+│       ├── logo_brand.h            generated brand logo
+│       └── claude_star_frames.h    generated thinking-GIF frames
 └── host/                           Python push/OTA tooling
-    ├── push_quota.py               quota push CLI
+    ├── push_quota.py               quota push CLI (0x01–0x03)
+    ├── push_idle.py                clock + Chinese weather push (0x04)
+    ├── push_state.py               app-state push (0x07)
+    ├── force_idle.py               idle-screen preview toggle (0x05)
+    ├── demo_moods.py               pet mood cycler (0x06)
     ├── ota.py                      OTA firmware uploader
     ├── cchud-update.sh             statusline wrapper (rate-limited)
-    ├── com.cchud.push.plist        launchd template (optional alternative to statusline hook)
+    ├── cchud-idle.sh               weather/clock wrapper (rate-limited)
+    ├── cchud-hook.sh               Claude Code hooks → 0x07 (single-flight lock)
+    ├── settings.hooks.example.json drop-in hooks config for ~/.claude/settings.json
+    ├── com.cchud.push.plist        launchd template (optional alternative)
     └── requirements.txt
 ```
 
