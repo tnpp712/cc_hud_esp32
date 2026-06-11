@@ -1163,4 +1163,8 @@ bool displayIsOtaActive() {
     return g_ota_active;
 }
 
+Adafruit_ST7789& displayGetTft() {
+    return g_tft;
+}
+
 }  // namespace cc_hud

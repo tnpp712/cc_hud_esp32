@@ -85,3 +85,15 @@ void displayOtaProgress(uint32_t received, uint32_t total);
 bool displayIsOtaActive();
 
 }  // namespace cc_hud
+
+// Forward declaration so callers don't need the Adafruit headers.
+class Adafruit_ST7789;
+
+namespace cc_hud {
+
+// Raw panel accessor for alternative render stacks (the LVGL flush
+// callback lives in lvgl_spike.cpp and pushes pixels through this).
+// Valid after displayInit().
+Adafruit_ST7789& displayGetTft();
+
+}  // namespace cc_hud

@@ -16,6 +16,7 @@
 #include "ble_server.h"
 #include "config.h"
 #include "display.h"
+#include "lvgl_spike.h"
 #include "ota_server.h"
 #include "persistence.h"
 
@@ -226,12 +227,18 @@ void setup() {
     cc_hud::displayInit();
     Serial.println("[TFT] init done");
 
+#if CCHUD_LVGL_SPIKE
+    // LVGL spike owns the screen — legacy renderer stays compiled but idle.
+    cc_hud::lvglSpikeInit();
+    Serial.println("[TFT] LVGL spike screen up");
+#else
     cc_hud::DisplayView view;
     view.quota         = loaded;
     view.ble_connected = false;
     view.now_ms        = static_cast<uint64_t>(millis());
     cc_hud::displayRender(view, /*full_redraw=*/true);
     Serial.println("[TFT] initial render done");
+#endif
 
     // Build BLE state in three steps so NimBLE's "all services must exist
     // before advertising starts" rule is honored:
@@ -250,6 +257,18 @@ void setup() {
 }
 
 void loop() {
+#if CCHUD_LVGL_SPIKE
+    // Spike mode: LVGL drives the screen. BLE/OTA stay fully alive —
+    // their callbacks only set flags we don't consume here, and the
+    // OTA path draws its own screen directly (we stop ticking LVGL so
+    // it can't overpaint the progress bar; device reboots after).
+    if (!cc_hud::displayIsOtaActive()) {
+        cc_hud::lvglSpikeTick();
+    }
+    delay(5);
+    return;
+#endif
+
     bool need_redraw = false;
     bool need_conn   = false;
     bool need_alert  = false;
