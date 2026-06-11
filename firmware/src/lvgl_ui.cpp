@@ -12,7 +12,6 @@
 // (logo_brand.h / tool_icons.h / claude_star_frames.h) — wrapped in
 // lv_image_dsc_t at init, zero new flash.
 
-#if CCHUD_LVGL_UI
 
 #include <Arduino.h>
 #include <Adafruit_ST7789.h>
@@ -665,4 +664,3 @@ void lvglUiApply(const LvglUiModel& m) {
 
 }  // namespace cc_hud
 
-#endif  // CCHUD_LVGL_UI

@@ -40,8 +40,6 @@ constexpr uint32_t kThinkingHoldMs = 90UL * 1000UL;  // 90s window after any quo
 volatile int8_t g_app_state = kAppStateUnset;
 char            g_app_state_detail[kAppStateDetailMaxLen + 1] = {0};
 
-uint32_t g_last_footer_tick = 0;
-
 // Compute percent (mirrors the helper in display.cpp; keeping it local avoids
 // pulling display internals into the BLE callback path).
 static uint8_t computePct(uint16_t used, uint16_t limit) {
@@ -227,19 +225,10 @@ void setup() {
     cc_hud::displayInit();
     Serial.println("[TFT] init done");
 
-#if CCHUD_LVGL_UI
-    // LVGL owns the HUD + idle screens — legacy renderer stays compiled
-    // for the OTA progress screen only.
+    // LVGL owns the HUD + idle screens; display.cpp keeps only the
+    // panel init and the OTA progress screen.
     cc_hud::lvglUiInit();
     Serial.println("[TFT] LVGL UI up");
-#else
-    cc_hud::DisplayView view;
-    view.quota         = loaded;
-    view.ble_connected = false;
-    view.now_ms        = static_cast<uint64_t>(millis());
-    cc_hud::displayRender(view, /*full_redraw=*/true);
-    Serial.println("[TFT] initial render done");
-#endif
 
     // Build BLE state in three steps so NimBLE's "all services must exist
     // before advertising starts" rule is honored:
@@ -253,15 +242,12 @@ void setup() {
     cc_hud::otaServerInit(cc_hud::bleGetServer());
     cc_hud::bleStartAdvertising();
 
-    cc_hud::g_last_footer_tick = millis();
     Serial.println("[BOOT] setup done");
 }
 
 void loop() {
-#if CCHUD_LVGL_UI
-    // LVGL mode. main stays the data owner: drain shared state under
-    // the lock, derive idle/mood/app-state exactly like the legacy
-    // path, then hand one model to the UI. The OTA screen still runs
+    // main stays the data owner: drain shared state under the lock,
+    // derive idle/mood/app-state, then hand one model to the UI. The OTA screen still runs
     // on the legacy direct-draw path — we just stop ticking LVGL so it
     // can't overpaint the progress bar (device reboots after OTA).
     if (cc_hud::displayIsOtaActive()) {
@@ -334,177 +320,4 @@ void loop() {
     }
     cc_hud::lvglUiTick();
     delay(5);
-    return;
-#endif
-
-    bool need_redraw = false;
-    bool need_conn   = false;
-    bool need_alert  = false;
-    bool conn_state  = false;
-    cc_hud::QuotaSnapshot snap;
-
-    portENTER_CRITICAL(&cc_hud::g_lock);
-    if (cc_hud::g_redraw_pending) {
-        snap                       = cc_hud::g_quota;
-        need_redraw                = true;
-        cc_hud::g_redraw_pending   = false;
-    }
-    if (cc_hud::g_conn_pending) {
-        conn_state                 = cc_hud::g_conn_state;
-        need_conn                  = true;
-        cc_hud::g_conn_pending     = false;
-    }
-    if (cc_hud::g_alert_pending) {
-        need_alert                 = true;
-        cc_hud::g_alert_pending    = false;
-    }
-    cc_hud::QuotaSnapshot snap_for_check = cc_hud::g_quota;
-    portEXIT_CRITICAL(&cc_hud::g_lock);
-
-    // Detect idle-mode transitions. We treat last_update_ms == 0 as
-    // "boot moment", so even if no quota write has happened this boot
-    // the device will fall to idle after kIdleThresholdMs ms of uptime.
-    // A fresh quota write resets the timer.
-    static bool s_was_idle = false;
-    const uint64_t now_ms_check = static_cast<uint64_t>(millis());
-    const uint64_t since_last =
-        (now_ms_check > snap_for_check.last_update_ms)
-            ? (now_ms_check - snap_for_check.last_update_ms)
-            : 0;
-    bool force_idle_now;
-    portENTER_CRITICAL(&cc_hud::g_lock);
-    force_idle_now = cc_hud::g_force_idle;
-    portEXIT_CRITICAL(&cc_hud::g_lock);
-    const bool now_idle = force_idle_now ||
-                          (since_last > cc_hud::kIdleThresholdMs);
-    if (now_idle != s_was_idle) {
-        s_was_idle = now_idle;
-        need_redraw = true;
-        if (!need_redraw || snap.last_update_ms == 0) {
-            snap = snap_for_check;
-        }
-        Serial.printf("[IDLE] mode flip -> %s\n", now_idle ? "idle" : "hud");
-    }
-    // Override the snapshot's mode to idle so displayRender picks the
-    // idle branch (we never persist mode=2; it's a runtime decoration).
-    if (now_idle) {
-        snap.mode = cc_hud::kSnapshotModeIdle;
-    }
-
-    // Threshold alert first — it blocks ~5s and then forces a full redraw.
-    if (need_alert) {
-        Serial.println("[ALERT] flashing screen red 5s");
-        cc_hud::displayFlashAlert();
-        need_redraw = true;  // restore HUD content after the flash
-        if (snap.last_update_ms == 0) {
-            // If we never received any quota, fall back to current g_quota.
-            portENTER_CRITICAL(&cc_hud::g_lock);
-            snap = cc_hud::g_quota;
-            portEXIT_CRITICAL(&cc_hud::g_lock);
-        }
-    }
-
-    // When an OTA is in progress the OTA task owns the screen — skip all
-    // HUD-side rendering until the device reboots into the new image.
-    const bool ota_active = cc_hud::displayIsOtaActive();
-
-    if (need_redraw && !ota_active) {
-        cc_hud::DisplayView v;
-        v.quota         = snap;
-        v.ble_connected = conn_state || cc_hud::bleIsConnected();
-        v.now_ms        = static_cast<uint64_t>(millis());
-        cc_hud::displayRender(v, /*full_redraw=*/need_alert);
-    }
-    if (need_conn && !ota_active) {
-        cc_hud::displayUpdateConnection(conn_state);
-    }
-
-    // Pet animation tick (idle only). Mood comes from current quota
-    // state — at higher usage % the cat's expression and walking speed
-    // change. Cheap: early-outs when nothing changed since last tick.
-    static uint32_t s_last_pet_tick_ms = 0;
-    const uint32_t now_pet = millis();
-    if (!ota_active && s_was_idle &&
-        now_pet - s_last_pet_tick_ms >= 16) {
-        s_last_pet_tick_ms = now_pet;
-
-        // Compute mood from the snapshot captured above (snap_for_check).
-        const uint8_t pct_5h = (snap_for_check.limit_5h > 0)
-            ? (uint8_t)((uint32_t)snap_for_check.used_5h * 100u /
-                        snap_for_check.limit_5h) : 0;
-        const uint8_t pct_7d = (snap_for_check.limit_7d > 0)
-            ? (uint8_t)((uint32_t)snap_for_check.used_7d * 100u /
-                        snap_for_check.limit_7d) : 0;
-        const uint8_t pct = pct_5h > pct_7d ? pct_5h : pct_7d;
-
-        cc_hud::PetMood mood;
-        if (cc_hud::g_force_mood != cc_hud::kPetMoodAuto) {
-            mood = static_cast<cc_hud::PetMood>(cc_hud::g_force_mood);
-        } else if (pct >= 95)      mood = cc_hud::kPetMoodOverwhelmed;
-        else if (pct >= 80)        mood = cc_hud::kPetMoodStressed;
-        else if (pct >= 60)        mood = cc_hud::kPetMoodTired;
-        else if (pct >= 30)        mood = cc_hud::kPetMoodCalm;
-        else                       mood = cc_hud::kPetMoodHappy;
-
-        cc_hud::displayTickPet(static_cast<uint64_t>(now_pet), mood);
-    }
-
-    // App-state tick (HUD mode only). Driven by g_app_state which is
-    // set by msg_type 0x07 push from Claude Code hooks via host. ~30 ms
-    // cadence = ~33 FPS, only redraws when something actually changes.
-    // Idle/Stop falls back to the legacy "thinking" GIF for 90 s after
-    // a quota write if no app state has ever been pushed (so devices
-    // without hooks configured still show liveness).
-    static uint32_t s_last_state_tick_ms = 0;
-    if (!ota_active && !s_was_idle &&
-        now_pet - s_last_state_tick_ms >= 30) {
-        s_last_state_tick_ms = now_pet;
-
-        cc_hud::AppState eff_state;
-        char eff_detail[cc_hud::kAppStateDetailMaxLen + 1];
-        portENTER_CRITICAL(&cc_hud::g_lock);
-        const int8_t st_raw = cc_hud::g_app_state;
-        std::strncpy(eff_detail, cc_hud::g_app_state_detail,
-                     sizeof(eff_detail));
-        eff_detail[sizeof(eff_detail) - 1] = '\0';
-        const uint32_t until = cc_hud::g_thinking_until_ms;
-        portEXIT_CRITICAL(&cc_hud::g_lock);
-
-        if (st_raw == cc_hud::kAppStateUnset) {
-            // No hook has ever pushed → use legacy thinking-window logic
-            // so things still look alive without hook setup.
-            const bool thinking = (until != 0) && (now_pet < until);
-            eff_state = thinking ? cc_hud::kAppStateThinking
-                                  : cc_hud::kAppStateIdle;
-            eff_detail[0] = '\0';
-        } else {
-            eff_state = static_cast<cc_hud::AppState>(st_raw);
-        }
-
-        cc_hud::displayTickState(static_cast<uint64_t>(now_pet),
-                                  eff_state, eff_detail);
-    }
-
-    // Footer freshness tick.
-    const uint32_t now = millis();
-    if (!ota_active &&
-        now - cc_hud::g_last_footer_tick >= cc_hud::kFooterRefreshMs) {
-        cc_hud::g_last_footer_tick = now;
-        portENTER_CRITICAL(&cc_hud::g_lock);
-        cc_hud::QuotaSnapshot s = cc_hud::g_quota;
-        portEXIT_CRITICAL(&cc_hud::g_lock);
-        if (s_was_idle) {
-            // Idle mode: re-render so the clock catches the next minute.
-            s.mode = cc_hud::kSnapshotModeIdle;
-            cc_hud::DisplayView v;
-            v.quota         = s;
-            v.ble_connected = cc_hud::bleIsConnected();
-            v.now_ms        = static_cast<uint64_t>(now);
-            cc_hud::displayRender(v);
-        } else {
-            cc_hud::displayTickFooter(s, static_cast<uint64_t>(now));
-        }
-    }
-
-    delay(50);  // light yield, keeps loop responsive without spinning hot
 }

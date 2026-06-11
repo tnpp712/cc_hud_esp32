@@ -10,7 +10,6 @@
 
 #pragma once
 
-#if CCHUD_LVGL_UI
 
 #include <Arduino.h>
 
@@ -45,4 +44,3 @@ void lvglUiFlashAlert();
 
 }  // namespace cc_hud
 
-#endif  // CCHUD_LVGL_UI
