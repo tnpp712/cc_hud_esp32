@@ -16,7 +16,7 @@
 #include "ble_server.h"
 #include "config.h"
 #include "display.h"
-#include "lvgl_spike.h"
+#include "lvgl_ui.h"
 #include "ota_server.h"
 #include "persistence.h"
 
@@ -227,10 +227,11 @@ void setup() {
     cc_hud::displayInit();
     Serial.println("[TFT] init done");
 
-#if CCHUD_LVGL_SPIKE
-    // LVGL spike owns the screen — legacy renderer stays compiled but idle.
-    cc_hud::lvglSpikeInit();
-    Serial.println("[TFT] LVGL spike screen up");
+#if CCHUD_LVGL_UI
+    // LVGL owns the HUD + idle screens — legacy renderer stays compiled
+    // for the OTA progress screen only.
+    cc_hud::lvglUiInit();
+    Serial.println("[TFT] LVGL UI up");
 #else
     cc_hud::DisplayView view;
     view.quota         = loaded;
@@ -257,14 +258,81 @@ void setup() {
 }
 
 void loop() {
-#if CCHUD_LVGL_SPIKE
-    // Spike mode: LVGL drives the screen. BLE/OTA stay fully alive —
-    // their callbacks only set flags we don't consume here, and the
-    // OTA path draws its own screen directly (we stop ticking LVGL so
-    // it can't overpaint the progress bar; device reboots after).
-    if (!cc_hud::displayIsOtaActive()) {
-        cc_hud::lvglSpikeTick();
+#if CCHUD_LVGL_UI
+    // LVGL mode. main stays the data owner: drain shared state under
+    // the lock, derive idle/mood/app-state exactly like the legacy
+    // path, then hand one model to the UI. The OTA screen still runs
+    // on the legacy direct-draw path — we just stop ticking LVGL so it
+    // can't overpaint the progress bar (device reboots after OTA).
+    if (cc_hud::displayIsOtaActive()) {
+        delay(50);
+        return;
     }
+
+    cc_hud::LvglUiModel m;
+    bool alert_now = false;
+    int8_t app_state_raw;
+    uint32_t thinking_until;
+    int8_t force_mood;
+    bool force_idle;
+
+    portENTER_CRITICAL(&cc_hud::g_lock);
+    m.quota = cc_hud::g_quota;
+    cc_hud::g_redraw_pending = false;
+    cc_hud::g_conn_pending   = false;
+    if (cc_hud::g_alert_pending) {
+        alert_now = true;
+        cc_hud::g_alert_pending = false;
+    }
+    app_state_raw  = cc_hud::g_app_state;
+    std::strncpy(m.app_detail, cc_hud::g_app_state_detail,
+                 sizeof(m.app_detail) - 1);
+    m.app_detail[sizeof(m.app_detail) - 1] = '\0';
+    thinking_until = cc_hud::g_thinking_until_ms;
+    force_mood     = cc_hud::g_force_mood;
+    force_idle     = cc_hud::g_force_idle;
+    portEXIT_CRITICAL(&cc_hud::g_lock);
+
+    const uint64_t now_ms = static_cast<uint64_t>(millis());
+    m.now_ms        = now_ms;
+    m.ble_connected = cc_hud::bleIsConnected();
+
+    // Idle detection — same rule as legacy.
+    const uint64_t lv_since_last =
+        (now_ms > m.quota.last_update_ms)
+            ? (now_ms - m.quota.last_update_ms) : 0;
+    m.idle_mode = force_idle || (lv_since_last > cc_hud::kIdleThresholdMs);
+
+    // Mood from max(5h%, 7d%), unless forced.
+    const uint8_t pct_5h = cc_hud::computePct(m.quota.used_5h, m.quota.limit_5h);
+    const uint8_t pct_7d = cc_hud::computePct(m.quota.used_7d, m.quota.limit_7d);
+    const uint8_t pct = pct_5h > pct_7d ? pct_5h : pct_7d;
+    if (force_mood != cc_hud::kPetMoodAuto) {
+        m.mood = static_cast<cc_hud::PetMood>(force_mood);
+    } else if (pct >= 95) m.mood = cc_hud::kPetMoodOverwhelmed;
+    else if (pct >= 80)   m.mood = cc_hud::kPetMoodStressed;
+    else if (pct >= 60)   m.mood = cc_hud::kPetMoodTired;
+    else if (pct >= 30)   m.mood = cc_hud::kPetMoodCalm;
+    else                  m.mood = cc_hud::kPetMoodHappy;
+
+    // App state with legacy thinking-window fallback for hosts that
+    // never push msg_type 0x07.
+    if (app_state_raw == cc_hud::kAppStateUnset) {
+        const bool thinking =
+            (thinking_until != 0) &&
+            (static_cast<uint32_t>(now_ms) < thinking_until);
+        m.app_state = thinking ? cc_hud::kAppStateThinking
+                                : cc_hud::kAppStateIdle;
+        m.app_detail[0] = '\0';
+    } else {
+        m.app_state = static_cast<cc_hud::AppState>(app_state_raw);
+    }
+
+    cc_hud::lvglUiApply(m);
+    if (alert_now) {
+        cc_hud::lvglUiFlashAlert();
+    }
+    cc_hud::lvglUiTick();
     delay(5);
     return;
 #endif
