@@ -439,16 +439,21 @@ void loop() {
     // Manual dim toggle (button long-press / web). Just flip the flag — the
     // unified dim block below applies it to BOTH the panel and the LED ring
     // (and won't fight the night/idle auto-dim).
-    static bool s_manual_dim = false;
+    // Manual brightness override: -1 = auto (follow night/idle), 0 = force
+    // bright, 1 = force dim. A long-press / web "dim" toggles between force-
+    // dim and force-bright, and WINS over the auto night/idle dim (so you can
+    // brighten the screen even while it's auto-dimmed in idle). The override
+    // auto-clears when Claude becomes active again (see the dim block).
+    static int8_t s_manual = -1;
     switch (cc_hud::buttonPoll(now_ms)) {
         case cc_hud::kBtnShort: cc_hud::lvglUiManualAdvance(); break;
-        case cc_hud::kBtnLong:  s_manual_dim = !s_manual_dim;  break;
+        case cc_hud::kBtnLong:  s_manual = (s_manual == 1) ? 0 : 1; break;
         default: break;
     }
     // Web dashboard control — same actions, zero hardware (phone buttons).
     switch (cc_hud::wifiOtaPollCommand()) {
         case cc_hud::kWebCmdNextPage:  cc_hud::lvglUiManualAdvance(); break;
-        case cc_hud::kWebCmdToggleDim: s_manual_dim = !s_manual_dim;  break;
+        case cc_hud::kWebCmdToggleDim: s_manual = (s_manual == 1) ? 0 : 1; break;
         default: break;
     }
 
@@ -481,22 +486,25 @@ void loop() {
         const bool night = (hour >= 23 || (hour >= 0 && hour < 7));
 
         // Power saver: track how long since any Claude activity. Any activity
-        // restores everything. WiFi stays ON (no unreliable USB auto-detect).
+        // restores everything AND clears the manual override (back to auto).
         static uint32_t s_last_active = 0;
         if (m.app_state == cc_hud::kAppStateTool ||
             m.app_state == cc_hud::kAppStateThinking ||
             m.app_state == cc_hud::kAppStateWaiting) {
             s_last_active = static_cast<uint32_t>(now_ms);
+            s_manual = -1;   // activity resumes → back to auto dim
         }
         const uint32_t idle_for =
             static_cast<uint32_t>(now_ms) - s_last_active;
         const bool long_idle = idle_for > cc_hud::kIdleDimMs;   // 3 min → dim
         g_ring_off = idle_for > cc_hud::kLedOffMs;               // 10 min → off
 
-        // Apply backlight + LED brightness when the dim decision flips OR the
-        // user changed the day brightness via the web slider (persisted).
-        // s_manual_dim (button long-press / web) forces both dim too.
-        const bool    dim        = night || long_idle || s_manual_dim;
+        // Dim decision: a manual override (long-press / web) WINS over the
+        // auto night/idle dim — so you can brighten even while auto-dimmed.
+        // Re-apply when it flips OR the web brightness slider changed.
+        const bool    dim        = (s_manual >= 0)
+                                       ? (s_manual == 1)
+                                       : (night || long_idle);
         const uint8_t day_bright = cc_hud::wifiOtaUserBrightness();
         static int8_t  s_dim        = -1;
         static uint8_t s_last_bright = 255;

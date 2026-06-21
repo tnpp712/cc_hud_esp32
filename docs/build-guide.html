@@ -298,7 +298,7 @@
         <tr><td>灯环</td><td>WS2812B <b>24 位</b> 圆环</td><td>⚠ 内径必须 >56mm 才套得住屏；推荐内 60/外 72mm。避开 8/12/16 位小环</td></tr>
         <tr><td>灯环配件</td><td>470Ω 电阻 + 470µF/10V 电解电容</td><td>电阻串 DIN；电容跨 VCC/GND。⚠ 电容<b>有正负极</b></td></tr>
         <tr><td>电源</td><td>3.7V 1000mAh 锂电（带保护板）</td><td>⚠ 必须带保护板（安全底线）</td></tr>
-        <tr><td>充电</td><td>TP4056 Type-C <b>带保护二合一</b></td><td>板上有 DW01+8205 两颗保护芯片</td></tr>
+        <tr><td>充电</td><td>TP4056 Type-C <b>带保护二合一</b></td><td>板上有 DW01+8205 两颗保护芯片。⚠ <b>认准带 CC 电阻(5.1K)版</b>——很多便宜款没焊 CC 电阻，C-to-C 线充不进电（只能用 USB-A→C 线）。详情料里搜「5.1K」「支持 C to C」</td></tr>
         <tr><td>升压</td><td>MT3608（可调裸板）</td><td>⚠ 装机前先单独调到 5.0V，否则可能输出 12V 烧主板</td></tr>
         <tr><td>开关</td><td>16mm 自锁带灯按钮（5V 灯）</td><td>总电源开关。⚠ 选自锁 + 5V 灯</td></tr>
         <tr><td>外壳/耗材</td><td>透明亚克力盒 + 硅胶导线 26AWG + 焊锡 + 热缩管 + 双面泡棉胶</td><td>盒内净宽≥85mm 容下灯环</td></tr>
@@ -633,7 +633,7 @@
       <path d="M476 262 H 560" fill="none" stroke="#95a5b8" stroke-width="2.5" stroke-dasharray="5 4"/>
       <text x="518" y="228" class="nn" fill="#e67e22" font-weight="bold" text-anchor="middle">调好5V才接!</text>
     </svg>
-    <figcaption><b>电源链</b>：实线先焊，<b>虚线（MT3608→主板）等第 4 步调好 5V 再接</b>。<b>灯环不接这条 5V</b>，它从 <b>MT3608 IN+（开关之后的 3.7V）</b>取电（见 B 节）——这样开关能同时关掉主板和灯环。红=正极、灰=负极，别接反。<br><b>充电方法</b>：USB-C 插 TP4056 自己的口（不是主板口）；充电时把主开关拨「关」，防 USB / 升压 / 电池三路反灌。</figcaption>
+    <figcaption><b>电源链</b>：实线先焊，<b>虚线（MT3608→主板）等第 4 步调好 5V 再接</b>。<b>灯环不接这条 5V</b>，它从 <b>MT3608 IN+（开关之后的 3.7V）</b>取电（见 B 节）——这样开关能同时关掉主板和灯环。红=正极、灰=负极，别接反。<br><b>充电方法</b>：USB-C 插 TP4056 自己的口（不是主板口）；充电时把主开关拨「关」，防 USB / 升压 / 电池三路反灌。⚠ 若 TP4056 缺 CC 电阻，<b>C-to-C 线充不进（无灯）→ 改用 USB-A→C 线</b>（见排障）。</figcaption>
   </figure>
 
   <!-- (D) 电池电量 -->
@@ -911,6 +911,8 @@ python ota.py --address &lt;设备UUID&gt; \
         <tr><td>屏显示但<b>额度不更新</b></td><td>Claude Code 暂未下发 <code>rate_limits</code>（新会话/长时间没调 API）</td><td>正常现象；真正交互产生用量后 30s 内自动更新</td></tr>
         <tr><td>电池电量<b>不显示</b></td><td>分压电阻没接（显示「无传感器」）</td><td>接 2× 2.2kΩ 分压到 GPIO1（D 节）</td></tr>
         <tr><td>电容<b>鼓包/发烫</b></td><td>电解电容接反</td><td>立即断电，换新电容，长脚+朝 VCC</td></tr>
+        <tr><td>TP4056 插 Type-C <b>没灯不充电</b>，但 USB-A→C 线能充</td><td>TP4056 的 Type-C <b>缺 CC 下拉电阻(5.1K)</b>，C-to-C 线检测不到受电端就不供电（Apple C-to-C 尤其严格）</td><td>① 最省事：充电固定用 <b>USB-A→C 线</b>（已能充）<br>② 彻底：换一块<b>带 CC 电阻</b>的 TP4056<br>③ 自补：CC1、CC2 各加一个 <b>5.1kΩ 下拉到 GND</b>（脚小难焊）</td></tr>
+        <tr><td>TP4056 <b>完全没灯</b>（USB-A 也没）</td><td>线是纯充电线坏了 / Type-C 座虚焊 / 模块坏</td><td>换数据线；补焊 Type-C 座 4 角脚；万用表量输入有无 5V，没有就换模块</td></tr>
       </table>
     </div>
     <div class="sumbar">📌 <b>一句话总结：</b>USB 黑屏=CDC 时序、灯不亮先查 D2/电容极性/共地、额度不更新多是 Claude 还没下发数据。</div>
