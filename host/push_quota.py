@@ -99,6 +99,74 @@ def _pack_payload_v3(*,
     return fixed + title_b
 
 
+def _pack_payload_v5(*,
+                     mode: int,
+                     h5_used: int, h5_limit: int,
+                     d7_used: int, d7_limit: int,
+                     h5_reset_s: int, d7_reset_s: int,
+                     cost_micro_usd: int, duration_s: int,
+                     ctx_pct: int,
+                     title: str) -> bytes:
+    """
+    v5 (0x08, 28 + title_len bytes): identical to v3 but with a 1-byte
+    context-window usage percent (0..100) inserted just before title_len.
+        u8  msg_type = 0x08
+        u8  mode (0=sub, 1=api)
+        u16 5h_used, u16 5h_limit, u16 7d_used, u16 7d_limit
+        u32 5h_reset_in_s, u32 7d_reset_in_s
+        u32 cost_micro_usd, u32 duration_s
+        u8  ctx_pct (0..100)
+        u8  title_len, ASCII...
+    """
+    title_b = title.encode("ascii", errors="replace")[:32]
+    fixed = struct.pack(
+        "<BBHHHHIIIIBB",
+        0x08, mode & 0xFF,
+        h5_used, h5_limit, d7_used, d7_limit,
+        h5_reset_s, d7_reset_s,
+        cost_micro_usd, duration_s,
+        max(0, min(100, ctx_pct)),
+        len(title_b),
+    )
+    return fixed + title_b
+
+
+def _pack_payload_v6(*,
+                     mode: int,
+                     h5_used: int, h5_limit: int,
+                     d7_used: int, d7_limit: int,
+                     h5_reset_s: int, d7_reset_s: int,
+                     cost_micro_usd: int, duration_s: int,
+                     ctx_pct: int,
+                     lines_added: int, lines_removed: int,
+                     title: str) -> bytes:
+    """
+    v6 (0x0A, 36 + title_len bytes): v5 layout + two u32 line counters
+    (lines_added, lines_removed) inserted right after ctx_pct. Feeds the
+    session-stats screen.
+        u8  msg_type = 0x0A
+        u8  mode (0=sub, 1=api)
+        u16 5h_used, u16 5h_limit, u16 7d_used, u16 7d_limit
+        u32 5h_reset_in_s, u32 7d_reset_in_s
+        u32 cost_micro_usd, u32 duration_s
+        u8  ctx_pct (0..100)
+        u32 lines_added, u32 lines_removed
+        u8  title_len, ASCII...
+    """
+    title_b = title.encode("ascii", errors="replace")[:32]
+    fixed = struct.pack(
+        "<BBHHHHIIIIBIIB",
+        0x0A, mode & 0xFF,
+        h5_used, h5_limit, d7_used, d7_limit,
+        h5_reset_s, d7_reset_s,
+        cost_micro_usd, duration_s,
+        max(0, min(100, ctx_pct)),
+        max(0, lines_added), max(0, lines_removed),
+        len(title_b),
+    )
+    return fixed + title_b
+
+
 # ── discover ───────────────────────────────────────────────────────────────────
 
 
@@ -158,6 +226,9 @@ async def push(
     duration_s: int,
     mode: str,
     title: str,
+    ctx_pct: int,
+    lines_added: int,
+    lines_removed: int,
     address: Optional[str],
     device_name: str,
     timeout: float,
@@ -199,45 +270,48 @@ async def push(
         _log(f"found at {device.address}", verbose)
         target = device
 
-    _log("connecting…", verbose)
-    try:
-        async with BleakClient(target, timeout=timeout) as client:
-            mode_int = _MODE_API if mode == "api" else _MODE_SUBSCRIPTION
-            cost_micro = max(0, int(round(cost_usd * 1_000_000)))
-            payload = _pack_payload_v3(
-                mode=mode_int,
-                h5_used=h5_used, h5_limit=h5_limit,
-                d7_used=d7_used, d7_limit=d7_limit,
-                h5_reset_s=max(0, h5_reset_s),
-                d7_reset_s=max(0, d7_reset_s),
-                cost_micro_usd=cost_micro,
-                duration_s=max(0, duration_s),
-                title=title,
-            )
-            _log(
-                f"writing v3 payload {len(payload)} bytes "
-                f"(mode={mode} title={title!r})",
-                verbose,
-            )
-            try:
-                # response=True is REQUIRED on macOS + NimBLE: with response=False
-                # bleak's CoreBluetooth backend silently drops the packet and the
-                # ESP32-S3's onWrite callback never fires. Verified empirically
-                # during bring-up. The 9-byte payload + ACK round-trip is still
-                # <30ms over BLE so there's no real cost.
+    mode_int = _MODE_API if mode == "api" else _MODE_SUBSCRIPTION
+    cost_micro = max(0, int(round(cost_usd * 1_000_000)))
+    payload = _pack_payload_v6(
+        mode=mode_int,
+        h5_used=h5_used, h5_limit=h5_limit,
+        d7_used=d7_used, d7_limit=d7_limit,
+        h5_reset_s=max(0, h5_reset_s),
+        d7_reset_s=max(0, d7_reset_s),
+        cost_micro_usd=cost_micro,
+        duration_s=max(0, duration_s),
+        ctx_pct=ctx_pct,
+        lines_added=lines_added,
+        lines_removed=lines_removed,
+        title=title,
+    )
+    _log(
+        f"writing v6 payload {len(payload)} bytes "
+        f"(mode={mode} ctx={ctx_pct}% +{lines_added}-{lines_removed} "
+        f"title={title!r})",
+        verbose,
+    )
+
+    # Retry once on a transient BLE connect/disconnect — CoreBluetooth drops
+    # the link intermittently under lock contention with the state/idle
+    # pushers. response=True is REQUIRED on macOS + NimBLE (response=False is
+    # silently dropped and the firmware's onWrite never fires).
+    last_err = None
+    for _ in range(2):
+        try:
+            _log("connecting…", verbose)
+            async with BleakClient(target, timeout=timeout) as client:
                 await client.write_gatt_char(
                     QUOTA_CHAR_UUID, payload, response=True
                 )
-            except Exception as exc:
-                print(f"ERROR: write failed: {exc}", file=sys.stderr)
-                return 3
-            _log("disconnecting", verbose)
-    except Exception as exc:
-        print(f"ERROR: connect failed: {exc}", file=sys.stderr)
-        return 2
-
-    _log("done", verbose)
-    return 0
+                _log("disconnecting", verbose)
+            _log("done", verbose)
+            return 0
+        except Exception as exc:
+            last_err = exc
+            await asyncio.sleep(0.4)
+    print(f"ERROR: connect/write failed: {last_err}", file=sys.stderr)
+    return 2
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
@@ -322,6 +396,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title", dest="title",
                    default="CC HUD", metavar="STR",
                    help="Header title (≤32 ASCII bytes), e.g. 'Plan Max (20x)'")
+    p.add_argument("--ctx-pct", dest="ctx_pct",
+                   type=int, default=0, metavar="PCT",
+                   help="Context-window usage percent (0..100) of the active "
+                        "session; shown in the HUD footer. 0 = hide.")
+    p.add_argument("--lines-added", dest="lines_added",
+                   type=int, default=0, metavar="N",
+                   help="Session lines added (stats page). v6.")
+    p.add_argument("--lines-removed", dest="lines_removed",
+                   type=int, default=0, metavar="N",
+                   help="Session lines removed (stats page). v6.")
     return p
 
 
@@ -361,6 +445,9 @@ async def amain() -> int:
         duration_s=args.duration_s,
         mode=args.mode,
         title=args.title,
+        ctx_pct=args.ctx_pct,
+        lines_added=args.lines_added,
+        lines_removed=args.lines_removed,
         address=args.address,
         device_name=args.device_name,
         timeout=args.timeout,

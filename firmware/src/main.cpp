@@ -13,12 +13,16 @@
 
 #include <cstring>
 
+#include "battery.h"
 #include "ble_server.h"
+#include "button.h"
 #include "config.h"
 #include "display.h"
+#include "led_ring.h"
 #include "lvgl_ui.h"
 #include "ota_server.h"
 #include "persistence.h"
+#include "wifi_ota.h"
 
 namespace cc_hud {
 
@@ -39,6 +43,11 @@ constexpr uint32_t kThinkingHoldMs = 90UL * 1000UL;  // 90s window after any quo
 // App-state, pushed by Claude Code hooks via msg_type 0x07.
 volatile int8_t g_app_state = kAppStateUnset;
 char            g_app_state_detail[kAppStateDetailMaxLen + 1] = {0};
+// Multi-session counts from the aggregating hook (stage 3). 0 = unknown.
+volatile uint8_t g_total_sessions = 0;
+volatile uint8_t g_busy_sessions  = 0;
+// One-shot "an AI finished a turn" pulse request (state 0x04 = done).
+volatile bool g_ping_pending = false;
 
 // Compute percent (mirrors the helper in display.cpp; keeping it local avoids
 // pulling display internals into the BLE callback path).
@@ -175,25 +184,107 @@ void onIdleWrite(uint32_t unix_ts,
 // `state` is one of AppState (0..3). `detail` is the tool name when
 // state == kAppStateTool, empty otherwise. We just stash it for the
 // main loop's state tick to pick up.
-void onStateWrite(int8_t state, const char* detail) {
+void onStateWrite(int8_t state, const char* detail,
+                  uint8_t total_sessions, uint8_t busy_sessions) {
+    // state 0x04 (done) is a one-shot "turn finished" signal: fire the green
+    // done-pulse and settle to idle rather than persisting a "done" state.
+    if (state == kAppStateDone) {
+        g_ping_pending = true;
+        state = kAppStateIdle;
+    }
     portENTER_CRITICAL(&g_lock);
     g_app_state = state;
     std::strncpy(g_app_state_detail, detail,
                  sizeof(g_app_state_detail) - 1);
     g_app_state_detail[sizeof(g_app_state_detail) - 1] = '\0';
+    g_total_sessions = total_sessions;
+    g_busy_sessions  = busy_sessions;
     portEXIT_CRITICAL(&g_lock);
-    Serial.printf("[STATE] %d (%s)\n",
-                  static_cast<int>(state), detail);
+    Serial.printf("[STATE] %d (%s) sess=%u/%u\n",
+                  static_cast<int>(state), detail,
+                  static_cast<unsigned>(busy_sessions),
+                  static_cast<unsigned>(total_sessions));
+}
+
+// v9 WiFi credentials write — persist + reconnect. Safe to call from the
+// NimBLE task; wifi_ota's NVS write is small/fast and WiFi.begin is
+// non-blocking.
+void onWifiWrite(const char* ssid, const char* password) {
+    cc_hud::wifiOtaSetCredentials(ssid, password);
+}
+
+// ----------------------------------------------------- burn prediction --
+// Tracks usage over time and exposes a smoothed burn rate so the HUD can
+// warn "this window will hit 100% before it resets". Fed one fresh sample
+// per quota push (~30 s cadence); EMA-smoothed to ride out the noise.
+struct BurnTrack {
+    bool     have       = false;
+    uint64_t t_ms       = 0;
+    uint16_t used       = 0;
+    float    rate_per_s = 0.0f;   // EMA of used-units per second
+};
+
+void burnUpdate(BurnTrack& b, uint16_t used, uint64_t t_ms) {
+    if (!b.have) { b.have = true; b.t_ms = t_ms; b.used = used; return; }
+    if (t_ms <= b.t_ms) return;
+    if (used < b.used) {            // window reset → restart cleanly
+        b.t_ms = t_ms; b.used = used; b.rate_per_s = 0.0f; return;
+    }
+    const float dt = (t_ms - b.t_ms) / 1000.0f;
+    if (dt < 1.0f) return;
+    const float inst = (used - b.used) / dt;   // units/sec
+    b.rate_per_s = (b.rate_per_s > 0.0f)
+                       ? 0.6f * b.rate_per_s + 0.4f * inst
+                       : inst;
+    b.t_ms = t_ms;
+    b.used = used;
+}
+
+// Projected seconds until `used` reaches `limit`. 0 = no usable prediction.
+uint32_t burnEtaSeconds(const BurnTrack& b, uint16_t used, uint16_t limit) {
+    if (b.rate_per_s <= 0.0001f || used >= limit) return 0;
+    return static_cast<uint32_t>((limit - used) / b.rate_per_s);
+}
+
+// Seconds remaining until a window resets, decremented live from millis().
+uint32_t resetRemaining(uint32_t captured_s, uint64_t cap_ms, uint64_t now_ms) {
+    if (captured_s == 0) return 0;
+    const uint32_t el = static_cast<uint32_t>(
+        (now_ms >= cap_ms ? now_ms - cap_ms : 0) / 1000ULL);
+    return el >= captured_s ? 0u : captured_s - el;
 }
 
 }  // namespace cc_hud
 
 // ============================================================== Arduino ===
 void setup() {
+    // Bring up the panel FIRST, before USB CDC enumeration. With
+    // ARDUINO_USB_CDC_ON_BOOT=1, plugging into an active USB host triggers
+    // enumeration during the early boot window — host-side DTR/RTS toggles
+    // and the USB interrupt storm can disturb ST7789 SPI init timing,
+    // leaving the panel backlit but blank. Doing displayInit() before
+    // Serial.begin() guarantees the SPI init sequence completes on a quiet
+    // bus. (We lose the [TFT] log line — no CDC yet — but that's fine.)
+    cc_hud::displayInit();
+    cc_hud::lvglUiInit();
+
+    // LED ring (WS2812B status light). Boots in Off mode; loop() drives
+    // it from g_app_state once BLE hooks start arriving.
+    cc_hud::ledRingInit();
+
+    // WiFi + ArduinoOTA — no-op if NVS has no creds yet; otherwise connects
+    // in the background and starts listening on cc-hud.local:3232.
+    cc_hud::wifiOtaInit();
+
+    // Optional add-ons — both ship safe when unwired (see config.h).
+    cc_hud::batteryInit();
+    cc_hud::buttonInit();
+
     Serial.begin(115200);
     delay(2500);  // give USB CDC time to enumerate after reset
     Serial.println();
     Serial.println("[BOOT] cc_hud v1");
+    Serial.println("[TFT] init done (pre-CDC)");
     Serial.printf("[CHIP] %s rev %d, %lu MHz, flash %lu MB, psram %lu B\n",
                   ESP.getChipModel(),
                   static_cast<int>(ESP.getChipRevision()),
@@ -221,15 +312,6 @@ void setup() {
     loaded.time_capture_ms = 0;
     cc_hud::g_quota = loaded;
 
-    // Bring up the display, paint first frame.
-    cc_hud::displayInit();
-    Serial.println("[TFT] init done");
-
-    // LVGL owns the HUD + idle screens; display.cpp keeps only the
-    // panel init and the OTA progress screen.
-    cc_hud::lvglUiInit();
-    Serial.println("[TFT] LVGL UI up");
-
     // Build BLE state in three steps so NimBLE's "all services must exist
     // before advertising starts" rule is honored:
     //   1. bleServerInit  — quota service + chars + advertising metadata
@@ -238,7 +320,8 @@ void setup() {
     cc_hud::bleServerInit(cc_hud::onQuotaWrite,
                           cc_hud::onConnChange,
                           cc_hud::onIdleWrite,
-                          cc_hud::onStateWrite);
+                          cc_hud::onStateWrite,
+                          cc_hud::onWifiWrite);
     cc_hud::otaServerInit(cc_hud::bleGetServer());
     cc_hud::bleStartAdvertising();
 
@@ -274,6 +357,8 @@ void loop() {
     std::strncpy(m.app_detail, cc_hud::g_app_state_detail,
                  sizeof(m.app_detail) - 1);
     m.app_detail[sizeof(m.app_detail) - 1] = '\0';
+    m.total_sessions = cc_hud::g_total_sessions;
+    m.busy_sessions  = cc_hud::g_busy_sessions;
     thinking_until = cc_hud::g_thinking_until_ms;
     force_mood     = cc_hud::g_force_mood;
     force_idle     = cc_hud::g_force_idle;
@@ -314,10 +399,191 @@ void loop() {
         m.app_state = static_cast<cc_hud::AppState>(app_state_raw);
     }
 
+    // ── Burn-rate prediction: sample once per fresh quota push, then warn
+    //    if either window is projected to exhaust before it resets. ──
+    static cc_hud::BurnTrack s_burn5, s_burn7;
+    static uint64_t s_last_sampled = 0;
+    if (m.quota.last_update_ms != 0 &&
+        m.quota.last_update_ms != s_last_sampled) {
+        s_last_sampled = m.quota.last_update_ms;
+        cc_hud::burnUpdate(s_burn5, m.quota.used_5h, m.quota.last_update_ms);
+        cc_hud::burnUpdate(s_burn7, m.quota.used_7d, m.quota.last_update_ms);
+    }
+    {
+        const uint32_t eta5 = cc_hud::burnEtaSeconds(
+            s_burn5, m.quota.used_5h, m.quota.limit_5h);
+        const uint32_t eta7 = cc_hud::burnEtaSeconds(
+            s_burn7, m.quota.used_7d, m.quota.limit_7d);
+        const uint32_t rst5 = cc_hud::resetRemaining(
+            m.quota.reset_in_s_5h, m.quota.last_update_ms, now_ms);
+        const uint32_t rst7 = cc_hud::resetRemaining(
+            m.quota.reset_in_s_7d, m.quota.last_update_ms, now_ms);
+        const bool warn5 = (eta5 > 0 && rst5 > 0 && eta5 < rst5);
+        const bool warn7 = (eta7 > 0 && rst7 > 0 && eta7 < rst7);
+        if (warn5 && (!warn7 || eta5 <= eta7)) {
+            m.exhaust_warn = true; m.exhaust_which = 0; m.exhaust_eta_s = eta5;
+        } else if (warn7) {
+            m.exhaust_warn = true; m.exhaust_which = 1; m.exhaust_eta_s = eta7;
+        }
+    }
+
+    // Optional battery monitor — sampled ~1 Hz internally. Fields default
+    // to "no sensor" (255) until a divider is wired to kPinBatterySense.
+    cc_hud::batteryTick(now_ms);
+    m.battery_pct = cc_hud::batteryValid() ? cc_hud::batteryPercent() : 255;
+    m.battery_low = cc_hud::batteryLow();
+
+    // Optional button: short press = manual page advance, long press =
+    // toggle manual dim. Unwired pin reads released (pull-up), so this is
+    // dormant until a switch is connected to kPinButton.
+    // Manual dim toggle (button long-press / web). Just flip the flag — the
+    // unified dim block below applies it to BOTH the panel and the LED ring
+    // (and won't fight the night/idle auto-dim).
+    static bool s_manual_dim = false;
+    switch (cc_hud::buttonPoll(now_ms)) {
+        case cc_hud::kBtnShort: cc_hud::lvglUiManualAdvance(); break;
+        case cc_hud::kBtnLong:  s_manual_dim = !s_manual_dim;  break;
+        default: break;
+    }
+    // Web dashboard control — same actions, zero hardware (phone buttons).
+    switch (cc_hud::wifiOtaPollCommand()) {
+        case cc_hud::kWebCmdNextPage:  cc_hud::lvglUiManualAdvance(); break;
+        case cc_hud::kWebCmdToggleDim: s_manual_dim = !s_manual_dim;  break;
+        default: break;
+    }
+
     cc_hud::lvglUiApply(m);
     if (alert_now) {
         cc_hud::lvglUiFlashAlert();
     }
     cc_hud::lvglUiTick();
+
+    // Set by the power-saver block below; read by the LED block after it.
+    bool g_ring_off = false;
+
+    // ── Night auto-dim: between 23:00 and 07:00 local, dim the panel and
+    //    the LED ring. Only acts once the clock has been calibrated via
+    //    BLE (unix_ts != 0). Guarded by static so we only write on change.
+    {
+        int hour = -1;
+        if (m.quota.unix_ts != 0) {
+            const uint32_t el =
+                (m.quota.time_capture_ms > 0 && now_ms >= m.quota.time_capture_ms)
+                    ? static_cast<uint32_t>(
+                          (now_ms - m.quota.time_capture_ms) / 1000ULL)
+                    : 0;
+            time_t local = static_cast<time_t>(m.quota.unix_ts) + el +
+                           static_cast<time_t>(m.quota.utc_offset_min) * 60;
+            struct tm tmv;
+            gmtime_r(&local, &tmv);
+            hour = tmv.tm_hour;
+        }
+        const bool night = (hour >= 23 || (hour >= 0 && hour < 7));
+
+        // Power saver: track how long since any Claude activity. Any activity
+        // restores everything. WiFi stays ON (no unreliable USB auto-detect).
+        static uint32_t s_last_active = 0;
+        if (m.app_state == cc_hud::kAppStateTool ||
+            m.app_state == cc_hud::kAppStateThinking ||
+            m.app_state == cc_hud::kAppStateWaiting) {
+            s_last_active = static_cast<uint32_t>(now_ms);
+        }
+        const uint32_t idle_for =
+            static_cast<uint32_t>(now_ms) - s_last_active;
+        const bool long_idle = idle_for > cc_hud::kIdleDimMs;   // 3 min → dim
+        g_ring_off = idle_for > cc_hud::kLedOffMs;               // 10 min → off
+
+        // Apply backlight + LED brightness when the dim decision flips OR the
+        // user changed the day brightness via the web slider (persisted).
+        // s_manual_dim (button long-press / web) forces both dim too.
+        const bool    dim        = night || long_idle || s_manual_dim;
+        const uint8_t day_bright = cc_hud::wifiOtaUserBrightness();
+        static int8_t  s_dim        = -1;
+        static uint8_t s_last_bright = 255;
+        if (static_cast<int8_t>(dim) != s_dim || day_bright != s_last_bright) {
+            s_dim = static_cast<int8_t>(dim);
+            s_last_bright = day_bright;
+            cc_hud::displaySetBacklight(dim ? 25 : 100);
+            cc_hud::ledRingSetBrightness(
+                dim ? cc_hud::kLedRingBrightnessNight : day_bright);
+        }
+    }
+
+    // One-shot done-pulse (e.g. Codex finished a turn). Owns the ring ~1.8s.
+    if (cc_hud::g_ping_pending) {
+        cc_hud::g_ping_pending = false;
+        cc_hud::ledRingPulseDone();
+    }
+
+    // ── Status LED ring. Priority: low battery (orange alarm) > very-long
+    //    idle (ring off to save power) > app-state. When idle/done, show the
+    //    ambient quota gauge (tiered colour). ──
+    if (m.battery_low) {
+        cc_hud::ledRingSetMode(cc_hud::kLedModeBattLow);
+    } else {
+        const cc_hud::LedMode led_mode =
+            cc_hud::ledRingModeForAppState(m.app_state);
+        if (led_mode == cc_hud::kLedModeIdleDone) {
+            if (g_ring_off) cc_hud::ledRingSetMode(cc_hud::kLedModeOff);
+            else            cc_hud::ledRingShowGauge(pct);
+        } else {
+            cc_hud::ledRingSetMode(led_mode);
+        }
+    }
+    cc_hud::ledRingTick();
+
+    // Publish a snapshot to the WiFi dashboard (throttled to ~2 Hz — the
+    // page polls every 3 s, so finer updates are wasted work).
+    static uint32_t s_web_next = 0;
+    if (static_cast<uint32_t>(now_ms) >= s_web_next) {
+        s_web_next = static_cast<uint32_t>(now_ms) + 500;
+        cc_hud::WebStatus ws;
+        std::strncpy(ws.title, m.quota.title, sizeof(ws.title) - 1);
+        ws.pct5 = pct_5h; ws.pct7 = pct_7d; ws.ctx = m.quota.ctx_pct;
+        ws.cost_micro = m.quota.cost_micro_usd;
+        ws.duration_s = m.quota.duration_s;
+        ws.lines_added = m.quota.lines_added;
+        ws.lines_removed = m.quota.lines_removed;
+        ws.total_sessions = m.total_sessions;
+        ws.busy_sessions  = m.busy_sessions;
+        ws.app_state = static_cast<int8_t>(m.app_state);
+        std::strncpy(ws.app_detail, m.app_detail, sizeof(ws.app_detail) - 1);
+        ws.ble_connected = m.ble_connected;
+        ws.exhaust_warn = m.exhaust_warn;
+        ws.exhaust_which = m.exhaust_which;
+        ws.exhaust_eta_s = m.exhaust_eta_s;
+        ws.battery_pct = m.battery_pct;
+        ws.battery_low = m.battery_low;
+        cc_hud::wifiOtaSetStatus(ws);
+    }
+
+    // ── NTP auto time-sync. Once WiFi is up, configure NTP (UTC); when the
+    //    system clock becomes valid, feed it into the snapshot so the clock
+    //    page works and survives a power loss WITHOUT a manual BLE
+    //    re-calibration. Re-checks once a minute to correct millis() drift. ──
+    static bool     s_ntp_started   = false;
+    static uint32_t s_ntp_next      = 0;
+    if (cc_hud::wifiOtaReady()) {
+        if (!s_ntp_started) {
+            configTime(0, 0, cc_hud::kNtpServer1, cc_hud::kNtpServer2);  // UTC
+            s_ntp_started = true;
+        }
+        if (static_cast<uint32_t>(now_ms) >= s_ntp_next) {
+            s_ntp_next = static_cast<uint32_t>(now_ms) + 60000;
+            const time_t t = time(nullptr);
+            if (t > 1700000000) {   // NTP responded (epoch after 2023)
+                portENTER_CRITICAL(&cc_hud::g_lock);
+                cc_hud::g_quota.unix_ts         = static_cast<uint32_t>(t);
+                cc_hud::g_quota.time_capture_ms = static_cast<uint64_t>(now_ms);
+                if (cc_hud::g_quota.utc_offset_min == 0)
+                    cc_hud::g_quota.utc_offset_min = cc_hud::kDefaultTzMin;
+                portEXIT_CRITICAL(&cc_hud::g_lock);
+            }
+        }
+    }
+
+    // Service WiFi ArduinoOTA + dashboard — no-op when WiFi isn't up yet.
+    cc_hud::wifiOtaTick();
+
     delay(5);
 }

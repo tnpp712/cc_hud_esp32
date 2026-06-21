@@ -35,7 +35,7 @@ Example output:
 
 ```
 ADDRESS                                   NAME              RSSI
-5BCF7865-FCCD-F66E-CBCC-19B5978C6902      CC-HUD            -37 dBm
+03265204-7126-B6FE-6F17-6E9621CEA97F      CC-HUD            -37 dBm
 ```
 
 Save that address — use it with `--address` (push_quota.py) or via
@@ -47,7 +47,7 @@ Save that address — use it with `--address` (push_quota.py) or via
 
 ```bash
 .venv/bin/python push_quota.py \
-  --address 5BCF7865-FCCD-F66E-CBCC-19B5978C6902 \
+  --address 03265204-7126-B6FE-6F17-6E9621CEA97F \
   --5h-used 42 --5h-limit 100 \
   --7d-used 300 --7d-limit 1000 \
   --verbose
@@ -87,7 +87,7 @@ Either edit the `CCHUD_ADDR` default inside `cchud-update.sh`, or export it
 from the script that invokes it:
 
 ```bash
-export CCHUD_ADDR='5BCF7865-FCCD-F66E-CBCC-19B5978C6902'
+export CCHUD_ADDR='03265204-7126-B6FE-6F17-6E9621CEA97F'
 ```
 
 ### 2. Hook into your `statusline.sh`

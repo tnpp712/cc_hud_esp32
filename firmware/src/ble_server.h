@@ -32,7 +32,14 @@ using IdleWriteHandler = std::function<void(uint32_t unix_ts,
 // v7 app-state write: host (Claude Code hooks → statusline) pushes the
 // current app state. `state` is one of AppState (config.h). `detail` is
 // an ASCII tool name when state == kAppStateTool, empty otherwise.
-using StateWriteHandler = std::function<void(int8_t state, const char* detail)>;
+// total_sessions / busy_sessions are 0 when the host didn't send the
+// optional stage-3 session-count bytes.
+using StateWriteHandler = std::function<void(int8_t state, const char* detail,
+                                             uint8_t total_sessions,
+                                             uint8_t busy_sessions)>;
+// v9 WiFi-credentials write. Empty `ssid` means "clear creds / disable WiFi".
+using WifiWriteHandler  = std::function<void(const char* ssid,
+                                             const char* password)>;
 
 // Initialise NimBLE, build the quota GATT service, and configure advertising
 // metadata. DOES NOT start advertising — that's separated out so additional
@@ -41,7 +48,8 @@ using StateWriteHandler = std::function<void(int8_t state, const char* detail)>;
 void bleServerInit(const QuotaWriteHandler&       on_write,
                    const ConnectionChangeHandler& on_conn,
                    const IdleWriteHandler&        on_idle,
-                   const StateWriteHandler&       on_state);
+                   const StateWriteHandler&       on_state,
+                   const WifiWriteHandler&        on_wifi);
 
 // Begin BLE advertising. Must be called once, after every other service has
 // been registered onto the server returned by bleGetServer().

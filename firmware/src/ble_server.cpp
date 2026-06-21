@@ -25,6 +25,7 @@ QuotaWriteHandler       g_on_write;
 ConnectionChangeHandler g_on_conn;
 IdleWriteHandler        g_on_idle;
 StateWriteHandler       g_on_state;
+WifiWriteHandler        g_on_wifi;
 
 // Handles owned by the NimBLE stack. We keep raw pointers to push notifies.
 NimBLEServer*         g_server      = nullptr;
@@ -81,6 +82,20 @@ public:
                 is_v3 = true;
             }
         }
+        bool is_v5 = false;
+        if (len >= kQuotaPayloadLenV5Base && data[0] == kQuotaMsgTypeV5) {
+            title_len = data[27];
+            if (len == kQuotaPayloadLenV5Base + title_len && title_len <= kTitleMaxLen) {
+                is_v5 = true;
+            }
+        }
+        bool is_v6 = false;
+        if (len >= kQuotaPayloadLenV6Base && data[0] == kQuotaMsgTypeV6) {
+            title_len = data[35];
+            if (len == kQuotaPayloadLenV6Base + title_len && title_len <= kTitleMaxLen) {
+                is_v6 = true;
+            }
+        }
         bool is_v4 = false;
         size_t v4_status_len = 0;
         if (len >= kQuotaPayloadLenV4Base && data[0] == kQuotaMsgTypeV4) {
@@ -124,9 +139,49 @@ public:
                 dl < kAppStateDetailMaxLen ? dl : kAppStateDetailMaxLen;
             if (copy_n > 0) std::memcpy(detail, data + 3, copy_n);
             detail[copy_n] = '\0';
-            Serial.printf("[BLE] state=%u detail=%s\n",
-                          static_cast<unsigned>(st), detail);
-            if (g_on_state) g_on_state(static_cast<int8_t>(st), detail);
+            // Optional stage-3 session-count bytes after the detail string.
+            uint8_t total_sessions = 0, busy_sessions = 0;
+            if (len >= static_cast<size_t>(3 + dl + 2)) {
+                total_sessions = data[3 + dl];
+                busy_sessions  = data[3 + dl + 1];
+            }
+            Serial.printf("[BLE] state=%u detail=%s sess=%u/%u\n",
+                          static_cast<unsigned>(st), detail,
+                          static_cast<unsigned>(busy_sessions),
+                          static_cast<unsigned>(total_sessions));
+            if (g_on_state) g_on_state(static_cast<int8_t>(st), detail,
+                                       total_sessions, busy_sessions);
+            bleNotifyState(kStateOk);
+            return;
+        }
+
+        // WiFi-credentials push (msg_type 0x09, ≥3 bytes):
+        //   [0]=0x09 [1]=ssid_len [2..]=ssid [+]=pwd_len [+]=pwd
+        if (len >= 3 && data[0] == kQuotaMsgTypeWifi) {
+            const uint8_t ssid_len = data[1];
+            if (ssid_len == 0 || ssid_len > kWifiSsidMaxLen ||
+                len < static_cast<size_t>(2u + ssid_len + 1u)) {
+                bleNotifyState(kStateErrLen);
+                return;
+            }
+            const uint8_t pwd_len = data[2 + ssid_len];
+            if (pwd_len > kWifiPwdMaxLen ||
+                len != static_cast<size_t>(3u + ssid_len + pwd_len)) {
+                bleNotifyState(kStateErrLen);
+                return;
+            }
+            char ssid[kWifiSsidMaxLen + 1] = {0};
+            char pwd [kWifiPwdMaxLen  + 1] = {0};
+            std::memcpy(ssid, data + 2, ssid_len);
+            ssid[ssid_len] = '\0';
+            if (pwd_len > 0) {
+                std::memcpy(pwd, data + 3 + ssid_len, pwd_len);
+            }
+            pwd[pwd_len] = '\0';
+            // Don't log the password — only SSID and length.
+            Serial.printf("[BLE] wifi creds: ssid=%s pwd_len=%u\n",
+                          ssid, static_cast<unsigned>(pwd_len));
+            if (g_on_wifi) g_on_wifi(ssid, pwd);
             bleNotifyState(kStateOk);
             return;
         }
@@ -153,10 +208,11 @@ public:
             return;
         }
 
-        if (!is_v1 && !is_v2 && !is_v3) {
+        if (!is_v1 && !is_v2 && !is_v3 && !is_v5 && !is_v6) {
             // Distinguish "wrong length" from "wrong msg_type" for the host.
             if (data[0] == kQuotaMsgTypeV1 || data[0] == kQuotaMsgTypeV2 ||
-                data[0] == kQuotaMsgTypeV3 || data[0] == kQuotaMsgTypeV4) {
+                data[0] == kQuotaMsgTypeV3 || data[0] == kQuotaMsgTypeV4 ||
+                data[0] == kQuotaMsgTypeV5 || data[0] == kQuotaMsgTypeV6) {
                 bleNotifyState(kStateErrLen);
             } else {
                 bleNotifyState(kStateErrType);
@@ -166,7 +222,7 @@ public:
 
         QuotaSnapshot parsed;
 
-        if (is_v3) {
+        if (is_v3 || is_v5 || is_v6) {
             parsed.mode           = data[1];
             parsed.used_5h        = leU16(data, 2);
             parsed.limit_5h       = leU16(data, 4);
@@ -176,9 +232,19 @@ public:
             parsed.reset_in_s_7d  = leU32(data, 14);
             parsed.cost_micro_usd = leU32(data, 18);
             parsed.duration_s     = leU32(data, 22);
+            // v5 inserts ctx_pct at 26 (title @28). v6 additionally inserts
+            // two u32 line counters at 27..34 (title @36).
+            size_t title_off = 27;
+            if (is_v5) { parsed.ctx_pct = data[26]; title_off = 28; }
+            if (is_v6) {
+                parsed.ctx_pct       = data[26];
+                parsed.lines_added   = leU32(data, 27);
+                parsed.lines_removed = leU32(data, 31);
+                title_off            = 36;
+            }
             // Copy ASCII title (already length-bounded above).
             if (title_len > 0) {
-                std::memcpy(parsed.title, data + 27, title_len);
+                std::memcpy(parsed.title, data + title_off, title_len);
             }
             parsed.title[title_len] = '\0';
         } else {
@@ -258,11 +324,13 @@ ServerCallbacks g_server_cb;
 void bleServerInit(const QuotaWriteHandler&       on_write,
                    const ConnectionChangeHandler& on_conn,
                    const IdleWriteHandler&        on_idle,
-                   const StateWriteHandler&       on_state) {
+                   const StateWriteHandler&       on_state,
+                   const WifiWriteHandler&        on_wifi) {
     g_on_write = on_write;
     g_on_conn  = on_conn;
     g_on_idle  = on_idle;
     g_on_state = on_state;
+    g_on_wifi  = on_wifi;
 
     NimBLEDevice::init(kBleDeviceName);
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);

@@ -94,7 +94,10 @@ def fetch_weather(city: str, timeout: float = 5.0) -> str:
             cond = cc["weatherDesc"][0]["value"].strip()
         except Exception:  # noqa: BLE001
             cond = "?"
-    text = f"{cond} {temp:+d}°C {city}".strip()
+    # Human-readable order: 城市 状况 温度. No "+" sign (unnatural in
+    # Chinese), single ℃ glyph (U+2103, in the font), and city first so a
+    # width clip still leaves the most useful info. e.g. "杭州 多云 27℃".
+    text = f"{city} {cond} {temp}℃".strip()
     return _utf8_truncate(text, MAX_STATUS_LEN).decode("utf-8")
 
 
@@ -141,16 +144,21 @@ async def run(address: str, status: str, weather_city: str,
         verbose,
     )
 
-    try:
-        async with BleakClient(address, timeout=timeout) as client:
-            _log("connected, writing…", verbose)
-            await client.write_gatt_char(QUOTA_CHAR, payload, response=True)
-            _log("done", verbose)
-    except Exception as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 2
-
-    return 0
+    # Retry once on a transient BLE disconnect (lock contention with the
+    # quota/state pushers).
+    last_err = None
+    for _ in range(2):
+        try:
+            async with BleakClient(address, timeout=timeout) as client:
+                _log("connected, writing…", verbose)
+                await client.write_gatt_char(QUOTA_CHAR, payload, response=True)
+                _log("done", verbose)
+            return 0
+        except Exception as exc:
+            last_err = exc
+            await asyncio.sleep(0.4)
+    print(f"ERROR: {last_err}", file=sys.stderr)
+    return 2
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -24,6 +24,16 @@ struct LvglUiModel {
     bool          idle_mode     = false;   // true → clock screen
     AppState      app_state     = kAppStateUnset;
     char          app_detail[kAppStateDetailMaxLen + 1] = {0};
+    uint8_t       total_sessions = 0;  // stage 3: live Claude Code sessions
+    uint8_t       busy_sessions  = 0;  // stage 3: how many are non-idle
+    // Burn-rate prediction (computed in main.cpp). When exhaust_warn is set,
+    // the named window is projected to hit 100% BEFORE it resets.
+    bool          exhaust_warn   = false;
+    uint8_t       exhaust_which  = 0;   // 0 = 5h window, 1 = 7d window
+    uint32_t      exhaust_eta_s  = 0;   // seconds until projected exhaustion
+    // Optional battery monitor. battery_pct == 255 means "no sensor wired".
+    uint8_t       battery_pct    = 255;
+    bool          battery_low    = false;
     PetMood       mood          = kPetMoodHappy;
     uint64_t      now_ms        = 0;
 };
@@ -41,6 +51,10 @@ void lvglUiApply(const LvglUiModel& m);
 
 // One-shot red alert flash (non-blocking; ~5 s of pulsing overlay).
 void lvglUiFlashAlert();
+
+// Manually jump to the next page (button short-press). Holds that page for
+// a few seconds, then the auto-carousel / activity logic resumes.
+void lvglUiManualAdvance();
 
 }  // namespace cc_hud
 

@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI 状态灯 · 制作指南（完整版）</title>
+<style>
+  :root{
+    --bg:#0d0f14; --card:#141822; --card2:#1a1f2b; --line:#2a2f3a;
+    --fg:#e8eaed; --muted:#9aa0aa; --blue:#4f8cff; --blue2:#7aa2ff;
+    --green:#2ecc71; --green2:#6ee7a0; --yellow:#f1c40f; --red:#e74c3c;
+    --orange:#e67e22; --grey:#95a5b8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Microsoft YaHei","PingFang SC",sans-serif;
+    line-height:1.75;font-size:15px}
+  .wrap{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+  h1{font-size:28px;margin:0 0 6px}
+  h2{font-size:22px;margin:48px 0 14px;padding-top:14px;display:flex;align-items:center;gap:12px}
+  h3{font-size:17px;margin:26px 0 10px;color:var(--blue2)}
+  .num{display:inline-flex;width:34px;height:34px;border-radius:9px;background:var(--blue);
+    color:#fff;align-items:center;justify-content:center;font-size:17px;font-weight:700;flex:none}
+  p{margin:10px 0}
+  b{color:#fff}
+  a{color:var(--blue2)}
+  .lead{color:var(--muted);font-size:16px}
+  .muted{color:var(--muted)} .small{font-size:13px}
+  code{background:#0b0d11;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:13px;color:#cfe3ff}
+  pre{background:#0b0d11;border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto;font-size:13px;color:#cfe3ff}
+
+  /* table of contents */
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 8px}
+  .toc a{background:var(--card);border:1px solid var(--line);border-radius:999px;
+    padding:5px 13px;font-size:13px;text-decoration:none;color:var(--fg)}
+  .toc a:hover{border-color:var(--blue)}
+
+  /* Cornell note layout */
+  .cornell{display:grid;grid-template-columns:172px 1fr;border:1px solid var(--line);
+    border-radius:14px;overflow:hidden;margin:18px 0;background:var(--card)}
+  .cornell .cue{background:#10141d;padding:16px 14px;border-right:1px solid var(--line);font-size:13px}
+  .cornell .cue h4{margin:0 0 8px;font-size:12px;letter-spacing:.08em;color:var(--blue2);text-transform:uppercase}
+  .cornell .cue ul{margin:0;padding-left:16px} .cornell .cue li{margin:6px 0;color:var(--muted)}
+  .cornell .cue .q{color:#fff;font-weight:600}
+  .cornell .notes{padding:16px 20px;min-width:0}
+  .cornell .sumbar{grid-column:1/3;background:#10261d;border-top:1px solid #1d4a32;
+    padding:11px 18px;color:var(--green2);font-size:13.5px}
+  .cornell .sumbar b{color:#aef5c8}
+  @media(max-width:680px){.cornell{grid-template-columns:1fr}.cornell .cue{border-right:0;border-bottom:1px solid var(--line)}.cornell .sumbar{grid-column:1}}
+
+  /* storyboard frames */
+  .frames{display:flex;gap:12px;overflow-x:auto;padding:8px 2px 14px}
+  .frame{min-width:158px;flex:1 0 158px;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;padding:12px}
+  .frame .n{display:inline-flex;width:24px;height:24px;border-radius:50%;background:var(--blue);
+    color:#fff;align-items:center;justify-content:center;font-weight:700;font-size:13px;margin-bottom:8px}
+  .frame .t{font-weight:600;font-size:14px;margin-bottom:4px}
+  .frame .d{color:var(--muted);font-size:12.5px}
+
+  /* boxes */
+  .tip,.warn,.card{border-radius:12px;padding:13px 16px;margin:14px 0;font-size:14px}
+  .tip{background:#10261d;border:1px solid #1d4a32}
+  .tip strong{color:var(--green2)}
+  .warn{background:#2a160f;border:1px solid #5a2a18}
+  .warn strong{color:#ffb38a}
+  .card{background:var(--card);border:1px solid var(--line)}
+  .card h3{margin-top:0}
+  /* verification gate */
+  .gate{background:#0e1f2b;border:1px solid #1d5a6e;border-left:4px solid #2bb8d8;
+    border-radius:10px;padding:11px 16px;margin:14px 0;font-size:14px}
+  .gate strong{color:#5fd6ef}
+  .gate.bad{background:#2a160f;border-color:#5a2a18;border-left-color:#e67e22}
+  .gate.bad strong{color:#ffb38a}
+
+  /* chips */
+  .chip{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12.5px;font-weight:600}
+  .chip.g{background:rgba(46,204,113,.16);color:#7ef0a8;border:1px solid #2ecc71}
+  .chip.y{background:rgba(241,196,15,.16);color:#ffe07a;border:1px solid #f1c40f}
+  .chip.r{background:rgba(231,76,60,.16);color:#ff9b8f;border:1px solid #e74c3c}
+  .chip.b{background:rgba(79,140,255,.16);color:#a9c6ff;border:1px solid #4f8cff}
+  .chip.gray{background:rgba(149,165,184,.14);color:#c3cad6;border:1px solid #5a6472}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:#10141d;color:var(--blue2);font-weight:600}
+  tr:nth-child(even) td{background:rgba(255,255,255,.012)}
+
+  /* figures */
+  figure{margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+  figure svg{width:100%;height:auto;display:block}
+  figcaption{color:var(--muted);font-size:13px;margin-top:10px;line-height:1.6}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0 2px;font-size:12.5px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:22px;height:4px;border-radius:2px;display:inline-block}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>AI 状态灯 · 完整制作指南</h1>
+  <p class="lead">一个放在桌上的透明小盒子：一块 1.54″ 彩屏显示 Claude Code 的额度 / 花费 / 状态，外圈 24 颗灯随 AI 在干嘛红黄绿变化。本指南覆盖<strong>从零件到点亮、从接线到刷机、再到手机网页遥控</strong>的全过程。</p>
+
+  <div class="toc">
+    <a href="#what">1 这是什么</a>
+    <a href="#how">2 怎么工作</a>
+    <a href="#parts">3 零件 BOM</a>
+    <a href="#tools">4 工具</a>
+    <a href="#pinmap">⚡ 引脚总表</a>
+    <a href="#solder">🔧 焊接要点</a>
+    <a href="#wiring">5 接线（核心）</a>
+    <a href="#v5">6 调 5V</a>
+    <a href="#flash">7 刷固件</a>
+    <a href="#host">8 电脑端配置</a>
+    <a href="#multi">🤖 多 AI 工具</a>
+    <a href="#upgrade">✚ 可选升级</a>
+    <a href="#case">9 装盒</a>
+    <a href="#check">✓ 自检清单</a>
+    <a href="#trouble">10 排障</a>
+  </div>
+
+  <div class="card small muted">
+    <b style="color:#fff">怎么读这份指南：</b>每节左边灰栏是<b style="color:#7aa2ff">「线索栏」</b>（关键词 + 这节回答的问题），右边是讲解和图，底部绿条是<b style="color:#6ee7a0">「一句话总结」</b>——这是<b>康奈尔笔记法</b>，复习时只看左栏和绿条就能回忆全节。接线和上电这种「有先后顺序」的步骤，用<b>分镜格</b>（像连环画）一格一步。
+  </div>
+
+  <div class="tip">
+    <strong>🚀 最短路径（老手速览）：</strong>
+    <div class="frames" style="margin-top:6px">
+      <div class="frame"><span class="n">1</span><div class="t">焊屏</div><div class="d">屏 8 线接主板（5A），VCC→3V3</div></div>
+      <div class="frame"><span class="n">2</span><div class="t">焊电源</div><div class="d">电池→TP4056→开关→MT3608，<b>先调 5V</b></div></div>
+      <div class="frame"><span class="n">3</span><div class="t">焊灯环</div><div class="d">DIN→D2(GPIO5)经470Ω；VCC→<b>MT3608 IN+</b>；470µF</div></div>
+      <div class="frame"><span class="n">4</span><div class="t">刷固件</div><div class="d">USB 首刷 → 之后 WiFi OTA 秒刷</div></div>
+      <div class="frame"><span class="n">5</span><div class="t">配电脑</div><div class="d">statusline+hooks 推数据；push_wifi 配网</div></div>
+    </div>
+  </div>
+
+  <!-- ============================ 1 ============================ -->
+  <h2 id="what"><span class="num">1</span>这是个什么东西？</h2>
+  <div class="cornell">
+    <div class="cue">
+      <h4>线索</h4>
+      <p class="q">它解决什么痛点？</p>
+      <ul>
+        <li>AI 在终端干活，你不知道它在<b>思考 / 等你 / 干完了</b></li>
+        <li>灯色 = 状态，瞄一眼就懂</li>
+        <li>屏 = 额度 / 花费 / 上下文</li>
+      </ul>
+    </div>
+    <div class="notes">
+      <p>用 Claude Code 写代码时，AI 在终端里跑，但你常常不知道它<b>正在思考</b>、<b>卡住等你确认</b>、还是<b>已经干完了</b>。要么反复切回去看打断自己，要么忘了它在等你。</p>
+      <p>这个装置把「AI 在屏幕里的文字流」变成桌上<b>一眼能懂的状态灯 + 数据屏</b>。</p>
+
+      <figure>
+        <figcaption style="margin:0 0 10px;color:var(--fg)"><b>成品示意图</b>（同心圆套屏：屏从 24 灯环正中露出，同一平面）</figcaption>
+        <!-- 成品 hero：透明盒 + 灯环 + 中心屏 -->
+        <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg">
+          <!-- 透明盒 -->
+          <rect x="210" y="20" width="300" height="260" rx="16" fill="#10141d" stroke="#3a4150" stroke-width="2"/>
+          <rect x="210" y="20" width="300" height="260" rx="16" fill="none" stroke="#4f8cff" stroke-width="1" opacity="0.25"/>
+          <text x="360" y="14" fill="#9aa0aa" font-size="12" text-anchor="middle">透明亚克力盒 10×10×10cm</text>
+          <!-- 24 灯环 -->
+          <circle cx="360" cy="150" r="92" fill="none" stroke="#1d212b" stroke-width="20"/>
+          <g>
+            <!-- 24 颗灯：上半绿黄、右侧红，示意额度表 -->
+            <circle cx="360" cy="58" r="6" fill="#2ecc71"/><circle cx="384" cy="61" r="6" fill="#2ecc71"/>
+            <circle cx="406" cy="70" r="6" fill="#2ecc71"/><circle cx="425" cy="85" r="6" fill="#2ecc71"/>
+            <circle cx="439" cy="104" r="6" fill="#f1c40f"/><circle cx="448" cy="126" r="6" fill="#f1c40f"/>
+            <circle cx="451" cy="150" r="6" fill="#f1c40f"/><circle cx="448" cy="174" r="6" fill="#2a3340"/>
+            <circle cx="439" cy="196" r="6" fill="#2a3340"/><circle cx="425" cy="215" r="6" fill="#2a3340"/>
+            <circle cx="406" cy="230" r="6" fill="#2a3340"/><circle cx="384" cy="239" r="6" fill="#2a3340"/>
+            <circle cx="360" cy="242" r="6" fill="#2a3340"/><circle cx="336" cy="239" r="6" fill="#2a3340"/>
+            <circle cx="314" cy="230" r="6" fill="#2a3340"/><circle cx="295" cy="215" r="6" fill="#2a3340"/>
+            <circle cx="281" cy="196" r="6" fill="#2a3340"/><circle cx="272" cy="174" r="6" fill="#2a3340"/>
+            <circle cx="269" cy="150" r="6" fill="#2a3340"/><circle cx="272" cy="126" r="6" fill="#2a3340"/>
+            <circle cx="281" cy="104" r="6" fill="#2a3340"/><circle cx="295" cy="85" r="6" fill="#2ecc71"/>
+            <circle cx="314" cy="70" r="6" fill="#2ecc71"/><circle cx="336" cy="61" r="6" fill="#2ecc71"/>
+          </g>
+          <!-- 中心屏 -->
+          <rect x="312" y="102" width="96" height="96" rx="6" fill="#0b0d11" stroke="#3a4150"/>
+          <text x="320" y="120" fill="#e8eaed" font-size="9" font-weight="bold">Opus 4.8</text>
+          <text x="320" y="135" fill="#9aa0aa" font-size="7">5H</text>
+          <rect x="320" y="139" width="80" height="6" rx="3" fill="#222"/><rect x="320" y="139" width="34" height="6" rx="3" fill="#2ecc71"/>
+          <text x="398" y="135" fill="#6ee7a0" font-size="8" text-anchor="end">42%</text>
+          <text x="320" y="160" fill="#9aa0aa" font-size="7">7D</text>
+          <rect x="320" y="164" width="80" height="6" rx="3" fill="#222"/><rect x="320" y="164" width="14" height="6" rx="3" fill="#2ecc71"/>
+          <text x="398" y="160" fill="#6ee7a0" font-size="8" text-anchor="end">18%</text>
+          <text x="320" y="190" fill="#7aa2ff" font-size="7">ctx 33%  ●</text>
+          <!-- 标注引导线 -->
+          <line x1="451" y1="150" x2="560" y2="150" stroke="#5a6472" stroke-width="1" stroke-dasharray="3 3"/>
+          <text x="566" y="147" fill="#9aa0aa" font-size="12">24 颗 WS2812B 灯环</text>
+          <text x="566" y="163" fill="#9aa0aa" font-size="11">= 状态灯 + 额度表</text>
+          <line x1="360" y1="198" x2="360" y2="262" stroke="#5a6472" stroke-width="1" stroke-dasharray="3 3"/>
+          <text x="360" y="276" fill="#9aa0aa" font-size="12" text-anchor="middle">中心 1.54″ 彩屏</text>
+        </svg>
+      </figure>
+
+      <table>
+        <tr><th>灯的样子</th><th>AI 在干嘛</th><th>你该做什么</th></tr>
+        <tr><td><span class="chip g">绿色弧（亮的颗数=额度）</span></td><td>空闲。同时把灯环当额度表用</td><td>不用管</td></tr>
+        <tr><td><span class="chip y">黄色彗星绕圈</span></td><td>正在思考 / 跑工具 / 改代码</td><td>等它跑</td></tr>
+        <tr><td><span class="chip r">红灯整环闪烁</span></td><td>卡住了 / 要权限 / 等你确认</td><td>马上去处理</td></tr>
+        <tr><td><span class="chip gray">微亮或全灭</span></td><td>夜间自动调暗 / 待机</td><td>不用管</td></tr>
+      </table>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>它是 AI 的「情绪 + 仪表表盘」——文字流变成桌上一眼看懂的灯色和数据。</div>
+  </div>
+
+  <!-- ============================ 2 ============================ -->
+  <h2 id="how"><span class="num">2</span>它是怎么工作的？</h2>
+  <div class="cornell">
+    <div class="cue">
+      <h4>线索</h4>
+      <p class="q">数据怎么从电脑到盒子？</p>
+      <ul>
+        <li>电脑 → 脚本 → <b>蓝牙/WiFi</b> → 盒子</li>
+        <li>两条无线路：<b>BLE</b> 推数据、<b>WiFi</b> 刷机+网页</li>
+        <li>盒子自带锂电，独立供电</li>
+      </ul>
+    </div>
+    <div class="notes">
+      <p>本质是一条「传话链」。你的电脑知道 AI 在干嘛，把消息无线发给盒子，盒子控制屏和灯。这一版有<b>两条无线通道</b>：</p>
+      <figure>
+        <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="ar2" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#4f8cff"/></marker>
+          </defs>
+          <!-- 电脑侧 -->
+          <rect x="20" y="30" width="300" height="300" rx="14" fill="none" stroke="#2a2f3a" stroke-dasharray="6 5"/>
+          <text x="36" y="22" fill="#7aa2ff" font-size="13" font-weight="bold">💻 你的电脑</text>
+          <rect x="44" y="46" width="252" height="56" rx="9" fill="#1d2a44" stroke="#4f8cff"/>
+          <text x="58" y="70" fill="#e8eaed" font-size="13" font-weight="bold">① Claude Code（AI 干活）</text>
+          <text x="58" y="90" fill="#9aa0aa" font-size="11.5">每个动作触发一个事件 + statusline</text>
+          <rect x="44" y="130" width="252" height="56" rx="9" fill="var(--card)" stroke="#2a2f3a"/>
+          <text x="58" y="154" fill="#e8eaed" font-size="13" font-weight="bold">② 脚本 hook / statusline</text>
+          <text x="58" y="174" fill="#9aa0aa" font-size="11.5">取额度+状态，决定推什么</text>
+          <rect x="44" y="214" width="120" height="86" rx="9" fill="var(--card)" stroke="#2a2f3a"/>
+          <text x="58" y="238" fill="#e8eaed" font-size="12.5" font-weight="bold">③a 蓝牙 BLE</text>
+          <text x="58" y="257" fill="#9aa0aa" font-size="11">推额度/状态</text>
+          <text x="58" y="274" fill="#9aa0aa" font-size="11">高频·低功耗</text>
+          <rect x="176" y="214" width="120" height="86" rx="9" fill="var(--card)" stroke="#2a2f3a"/>
+          <text x="190" y="238" fill="#e8eaed" font-size="12.5" font-weight="bold">③b WiFi</text>
+          <text x="190" y="257" fill="#9aa0aa" font-size="11">刷固件(秒级)</text>
+          <text x="190" y="274" fill="#9aa0aa" font-size="11">网页遥控</text>
+          <!-- 竖直连接，直角 -->
+          <line x1="170" y1="102" x2="170" y2="130" stroke="#4f8cff" stroke-width="2" marker-end="url(#ar2)"/>
+          <line x1="104" y1="186" x2="104" y2="214" stroke="#4f8cff" stroke-width="2" marker-end="url(#ar2)"/>
+          <line x1="236" y1="186" x2="236" y2="214" stroke="#4f8cff" stroke-width="2" marker-end="url(#ar2)"/>
+          <!-- 无线跨越（直角 + 虚线） -->
+          <path d="M320 257 H 372 V 110 H 400" fill="none" stroke="#4f8cff" stroke-width="2.5" stroke-dasharray="2 6" marker-end="url(#ar2)"/>
+          <text x="346" y="186" fill="#7aa2ff" font-size="11" text-anchor="middle" font-weight="bold">无线</text>
+          <!-- 盒子侧 -->
+          <rect x="400" y="30" width="300" height="300" rx="14" fill="none" stroke="#2a2f3a" stroke-dasharray="6 5"/>
+          <text x="416" y="22" fill="#7aa2ff" font-size="13" font-weight="bold">📦 桌上的盒子（ESP32-S3）</text>
+          <rect x="420" y="86" width="260" height="52" rx="9" fill="#1d2a44" stroke="#4f8cff"/>
+          <text x="434" y="110" fill="#e8eaed" font-size="13" font-weight="bold">④ 主板收到 → 决定怎么显示</text>
+          <text x="434" y="128" fill="#9aa0aa" font-size="11">屏显什么页、灯亮什么色</text>
+          <line x1="550" y1="138" x2="550" y2="162" stroke="#4f8cff" stroke-width="2" marker-end="url(#ar2)"/>
+          <rect x="420" y="166" width="125" height="150" rx="9" fill="var(--card)" stroke="#2a2f3a"/>
+          <text x="434" y="188" fill="#e8eaed" font-size="12.5" font-weight="bold">⑤ 屏：4 页轮播</text>
+          <text x="434" y="208" fill="#9aa0aa" font-size="11">额度页</text>
+          <text x="434" y="226" fill="#9aa0aa" font-size="11">统计页 $/行</text>
+          <text x="434" y="244" fill="#9aa0aa" font-size="11">工具页 图标</text>
+          <text x="434" y="262" fill="#9aa0aa" font-size="11">时钟页</text>
+          <text x="434" y="286" fill="#7aa2ff" font-size="10.5">空闲轮播·干活锁工具页</text>
+          <rect x="555" y="166" width="125" height="150" rx="9" fill="var(--card)" stroke="#2a2f3a"/>
+          <text x="569" y="188" fill="#e8eaed" font-size="12.5" font-weight="bold">⑥ 24 灯环</text>
+          <circle cx="615" cy="250" r="34" fill="none" stroke="#2a2f3a" stroke-width="9"/>
+          <circle cx="615" cy="216" r="5" fill="#2ecc71"/><circle cx="639" cy="226" r="5" fill="#f1c40f"/>
+          <circle cx="649" cy="250" r="5" fill="#e74c3c"/><circle cx="639" cy="274" r="5" fill="#2a3340"/>
+          <circle cx="615" cy="284" r="5" fill="#2a3340"/><circle cx="591" cy="274" r="5" fill="#2a3340"/>
+          <circle cx="581" cy="250" r="5" fill="#2ecc71"/><circle cx="591" cy="226" r="5" fill="#2ecc71"/>
+          <text x="569" y="306" fill="#7aa2ff" font-size="10.5">额度表/彗星/红闪</text>
+        </svg>
+        <figcaption><b>整条传话链</b>：AI 动作 → 脚本捕捉 → BLE 推数据（高频）/ WiFi 刷机+网页（按需）→ 主板接收 → 屏 4 页轮播 + 灯环变色。盒子与电脑之间全程<b>无线</b>，盒子靠自带锂电供电。</figcaption>
+      </figure>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>电脑脚本把 AI 状态<b>用蓝牙</b>实时推给盒子；<b>WiFi</b> 额外提供秒级刷机和手机网页遥控。</div>
+  </div>
+
+  <!-- ============================ 3 ============================ -->
+  <h2 id="parts"><span class="num">3</span>零件清单（BOM）</h2>
+  <div class="cornell">
+    <div class="cue">
+      <h4>线索</h4>
+      <p class="q">买什么？哪些有坑？</p>
+      <ul>
+        <li>主板认准<b>N8R8/N16R8</b>，引脚对得上</li>
+        <li>屏认准 <b>IPS · 8pin · 独立 CS</b></li>
+        <li>灯环 <b>24 位 · 内径≥56mm</b></li>
+        <li>升压 MT3608 <b>先调 5V 再接</b></li>
+      </ul>
+    </div>
+    <div class="notes">
+      <table>
+        <tr><th>类别</th><th>零件</th><th>选型要点 / 避坑</th></tr>
+        <tr><td>主板</td><td>ESP32-S3 Nano（兼容 Arduino Nano）</td><td>N8R8 或 N16R8（Flash≥8MB）。⚠ 避开引脚对不上的便宜款。买<b>未焊排针</b>版直接焊线</td></tr>
+        <tr><td>屏</td><td>1.54″ ST7789 240×240 IPS</td><td>4 线 SPI，<b>8pin</b>（GND/VCC/SCL/SDA/RES/DC/CS/BL）。认准 IPS + 独立 CS</td></tr>
+        <tr><td>灯环</td><td>WS2812B <b>24 位</b> 圆环</td><td>⚠ 内径必须 >56mm 才套得住屏；推荐内 60/外 72mm。避开 8/12/16 位小环</td></tr>
+        <tr><td>灯环配件</td><td>470Ω 电阻 + 470µF/10V 电解电容</td><td>电阻串 DIN；电容跨 VCC/GND。⚠ 电容<b>有正负极</b></td></tr>
+        <tr><td>电源</td><td>3.7V 1000mAh 锂电（带保护板）</td><td>⚠ 必须带保护板（安全底线）</td></tr>
+        <tr><td>充电</td><td>TP4056 Type-C <b>带保护二合一</b></td><td>板上有 DW01+8205 两颗保护芯片</td></tr>
+        <tr><td>升压</td><td>MT3608（可调裸板）</td><td>⚠ 装机前先单独调到 5.0V，否则可能输出 12V 烧主板</td></tr>
+        <tr><td>开关</td><td>16mm 自锁带灯按钮（5V 灯）</td><td>总电源开关。⚠ 选自锁 + 5V 灯</td></tr>
+        <tr><td>外壳/耗材</td><td>透明亚克力盒 + 硅胶导线 26AWG + 焊锡 + 热缩管 + 双面泡棉胶</td><td>盒内净宽≥85mm 容下灯环</td></tr>
+        <tr><td class="muted">可选①</td><td class="muted">2× 2.2kΩ 电阻（电池电量）</td><td class="muted">做电池分压。电磁炮项目余料里就有（LED 指示用 2.2k）</td></tr>
+        <tr><td class="muted">可选②</td><td class="muted">自复位轻触按钮 ×1（实体翻页键）</td><td class="muted">同样可从电磁炮余料取；不接也能用网页遥控</td></tr>
+      </table>
+      <div class="tip"><strong>💡 分两阶段做最稳：</strong>① 先把「ESP32 + 屏 + 电源」跑通，确认蓝牙能收到额度并显示；② 再加灯环。每步独立可验证，出问题好定位。</div>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>核心五件 = 主板 + 屏 + 24 灯环 + 锂电链 + 盒子；电阻电容是灯环必备，分压电阻和按钮是可选升级。</div>
+  </div>
+
+  <!-- ============================ 4 ============================ -->
+  <h2 id="tools"><span class="num">4</span>工具</h2>
+  <div class="cornell">
+    <div class="cue"><h4>线索</h4><p class="q">动手前要备什么？</p><ul><li>烙铁 + 焊锡（焊线不焊排针）</li><li><b>万用表</b>（调 5V 必备）</li><li>热缩管护焊点</li></ul></div>
+    <div class="notes">
+      <table>
+        <tr><th>工具</th><th>用途</th><th>备注</th></tr>
+        <tr><td>恒温电烙铁套装</td><td>所有焊接</td><td>60W 可调，配吸锡/镊子</td></tr>
+        <tr><td>数字万用表</td><td>调 MT3608 的 5V、测通断</td><td>⚠ 不能省，这步靠它保命</td></tr>
+        <tr><td>热熔胶枪</td><td>固定灯环/底座</td><td>20W 小号</td></tr>
+        <tr><td>剥线钳 / 尖嘴钳</td><td>剥线、弯脚</td><td>—</td></tr>
+      </table>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>烙铁 + 万用表是底线，万用表用来调 5V，没有它别接升压。</div>
+  </div>
+
+  <!-- ============================ 引脚总表 ============================ -->
+  <h2 id="pinmap"><span class="num">⚡</span>引脚总表（接线前先背这张）</h2>
+  <div class="warn"><strong>⚠ 这是整个项目最容易翻车的地方，务必先看。</strong>这块 ESP32-S3 Nano 用的是 <b>Arduino Nano ESP32 真排列</b>：丝印上低位 GPIO 标 <b>A0–A7</b>（不是 D！），高位标 D2–D13。<b>千万别拿「GPIO 几」去板上找「D 几」</b>——连 BOM 都把灯环写错成「D5」，实际是 <b>D2(=GPIO5)</b>。下表丝印为准。</div>
+  <table>
+    <tr><th>接什么</th><th>板上丝印（照这个焊！）</th><th>= GPIO</th><th>线色建议</th></tr>
+    <tr><td>屏 SCL（时钟）</td><td><b>D13</b></td><td>GPIO48</td><td>黄</td></tr>
+    <tr><td>屏 SDA（数据）</td><td><b>D11</b></td><td>GPIO38</td><td>绿</td></tr>
+    <tr><td>屏 CS（片选）</td><td><b>D10</b></td><td>GPIO21</td><td>橙</td></tr>
+    <tr><td>屏 DC</td><td><b>D7</b></td><td>GPIO10</td><td>白</td></tr>
+    <tr><td>屏 RES（复位）</td><td><b>D8</b></td><td>GPIO17</td><td>蓝</td></tr>
+    <tr><td>屏 BL（背光）</td><td><b>D9</b></td><td>GPIO18</td><td>灰</td></tr>
+    <tr><td>屏 VCC</td><td><b>3V3</b> ⚠不是5V</td><td>—</td><td>红</td></tr>
+    <tr><td>屏 GND</td><td><b>GND</b></td><td>—</td><td>黑/灰</td></tr>
+    <tr><td><b>灯环 DIN</b>（经470Ω）</td><td><b>D2</b> ⚠不是D5</td><td>GPIO5</td><td>黄</td></tr>
+    <tr><td>电池电量（可选，经分压）</td><td><b>A0</b></td><td>GPIO1</td><td>—</td></tr>
+    <tr><td>按钮（可选）</td><td><b>A1</b></td><td>GPIO2</td><td>—</td></tr>
+  </table>
+  <div class="tip"><strong>💡 拿不准就用万用表通断档</strong>：黑表笔搭板上某个丝印脚，红表笔去碰 ESP32 芯片对应引脚，响=对上了。低位脚记住口诀：<b>A0=GPIO1、A1=GPIO2、…、D2=GPIO5、D3=GPIO6</b>（A 段从 GPIO1 起，D 段从 GPIO5 起）。</div>
+
+  <!-- ============================ 焊接要点 ============================ -->
+  <h2 id="solder"><span class="num">🔧</span>新手焊接要点</h2>
+  <div class="cornell">
+    <div class="cue"><h4>线索</h4><p class="q">焊导线不焊排针，怎么焊好？</p><ul><li>先上锡，再贴合</li><li>第三只手固定</li><li>焊点套热缩管</li><li>26AWG 软线好焊</li></ul></div>
+    <div class="notes">
+      <p>本方案<b>全部焊导线、不焊排针</b>（保持低高度、贴平面板）。新手按这几条做不容易翻车：</p>
+      <div class="frames">
+        <div class="frame"><span class="n">1</span><div class="t">两边先上锡</div><div class="d">焊盘和线头各先熔一点锡（搪锡），再对上一碰即焊牢</div></div>
+        <div class="frame"><span class="n">2</span><div class="t">第三只手</div><div class="d">用焊接辅助夹固定板和线，腾出两只手拿烙铁+锡</div></div>
+        <div class="frame"><span class="n">3</span><div class="t">先穿热缩管</div><div class="d">焊前把热缩管先套到线上，焊完推过去吹热收紧</div></div>
+        <div class="frame"><span class="n">4</span><div class="t">温度+时间</div><div class="d">恒温 ~330℃，每点 ≤2 秒，焊点光亮饱满不拉尖</div></div>
+      </div>
+      <div class="gate"><strong>✓ 好焊点长这样：</strong>光亮、饱满、像小山包；轻拽线不动。<b>灰暗、像球、一拽就掉 = 虚焊</b>，重焊。</div>
+      <div class="warn"><strong>⚠ 最常见三个翻车：</strong>① 焊盘没上锡直接怼线 → 虚焊；② 烙铁停太久 → 焊盘脱落/烧坏元件；③ 忘了先穿热缩管 → 焊完才发现套不进去。</div>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>两边先搪锡、第三只手固定、焊前先穿热缩管、每点 2 秒内。</div>
+  </div>
+
+  <!-- ============================ 5 ============================ -->
+  <h2 id="wiring"><span class="num">5</span>接线（核心）</h2>
+  <p class="lead">分五部分：<b>(A) 屏接主板</b>、<b>(B) 灯环接主板</b>、<b>(C) 电源链</b>、<b>(D) 电池电量（可选）</b>、<b>(E) 按钮（可选）</b>。<b>先别通电，全部焊好、调好 5V 再上电。</b></p>
+
+  <figure>
+    <figcaption style="margin:0 0 10px;color:var(--fg)"><b>总装系统总览</b>（先看懂整体，再逐段焊；下面每段是它的放大）</figcaption>
+    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg">
+      <style>.bx{rx:10;stroke-width:1.5}.bt{fill:#e8eaed;font-size:12px;font-weight:bold}.lk{font-size:10.5px;font-weight:bold}.nn{fill:#9aa0aa;font-size:10px}</style>
+      <!-- 主板 中心 -->
+      <rect x="290" y="120" width="140" height="60" rx="10" fill="#0c2a1e" stroke="#2ecc71" stroke-width="1.5"/>
+      <text x="360" y="146" class="bt" text-anchor="middle">① ESP32-S3 主板</text>
+      <text x="360" y="166" class="nn" text-anchor="middle">大脑</text>
+      <!-- 屏 左 -->
+      <rect x="40" y="120" width="120" height="60" rx="10" fill="#1a1432" stroke="#7aa2ff" stroke-width="1.5"/>
+      <text x="100" y="146" class="bt" text-anchor="middle">② 1.54″ 屏</text>
+      <text x="100" y="166" class="nn" text-anchor="middle">显示额度</text>
+      <!-- 屏→主板 8线 -->
+      <line x1="160" y1="150" x2="290" y2="150" stroke="#7aa2ff" stroke-width="3"/>
+      <text x="225" y="142" fill="#7aa2ff" class="lk" text-anchor="middle">8 线 SPI</text>
+      <text x="225" y="166" class="nn" text-anchor="middle">VCC→3V3</text>
+      <!-- 灯环 右 -->
+      <circle cx="620" cy="150" r="34" fill="none" stroke="#1d212b" stroke-width="9"/>
+      <circle cx="620" cy="120" r="4" fill="#2ecc71"/><circle cx="644" cy="135" r="4" fill="#f1c40f"/>
+      <circle cx="650" cy="160" r="4" fill="#e74c3c"/><circle cx="630" cy="182" r="4" fill="#2ecc71"/>
+      <circle cx="600" cy="180" r="4" fill="#f1c40f"/><circle cx="592" cy="138" r="4" fill="#e74c3c"/>
+      <text x="620" y="206" class="bt" text-anchor="middle">③ 24 灯环</text>
+      <!-- 主板→灯环 DIN -->
+      <line x1="430" y1="145" x2="586" y2="145" stroke="#f1c40f" stroke-width="3"/>
+      <text x="508" y="137" fill="#f1c40f" class="lk" text-anchor="middle">DIN 经 470Ω</text>
+      <text x="508" y="160" class="nn" text-anchor="middle">D2=GPIO5</text>
+      <!-- 电源链 底部 一条 -->
+      <rect x="40" y="245" width="80" height="38" rx="8" fill="#23180c" stroke="#e67e22"/>
+      <text x="80" y="268" class="bt" text-anchor="middle" font-size="11">🔋 电池</text>
+      <rect x="150" y="245" width="90" height="38" rx="8" fill="#11212e" stroke="#4f8cff"/>
+      <text x="195" y="262" class="bt" text-anchor="middle" font-size="10">⑤ TP4056</text>
+      <text x="195" y="276" class="nn" text-anchor="middle">充电</text>
+      <rect x="270" y="245" width="80" height="38" rx="8" fill="#11151d" stroke="#8a93a3"/>
+      <text x="310" y="268" class="bt" text-anchor="middle" font-size="11">⑦ 开关</text>
+      <rect x="380" y="245" width="100" height="38" rx="8" fill="#11212e" stroke="#4f8cff"/>
+      <text x="430" y="262" class="bt" text-anchor="middle" font-size="10">⑥ MT3608</text>
+      <text x="430" y="276" class="nn" text-anchor="middle">升压 5V</text>
+      <!-- 电源链连线 -->
+      <line x1="120" y1="264" x2="150" y2="264" stroke="#e74c3c" stroke-width="2.5"/>
+      <line x1="240" y1="264" x2="270" y2="264" stroke="#e74c3c" stroke-width="2.5"/>
+      <line x1="350" y1="264" x2="380" y2="264" stroke="#e74c3c" stroke-width="2.5"/>
+      <!-- MT3608→主板 5V -->
+      <path d="M480 258 H 520 V 180" fill="none" stroke="#e74c3c" stroke-width="2.5"/>
+      <text x="532" y="220" fill="#e74c3c" class="lk">5V→主板</text>
+      <!-- MT3608 IN+ → 灯环VCC -->
+      <path d="M455 245 V 220 H 600 V 180" fill="none" stroke="#e67e22" stroke-width="2" stroke-dasharray="4 3"/>
+      <text x="556" y="214" fill="#e67e22" class="nn">灯环VCC取此(开关后3.7V)</text>
+      <text x="360" y="300" fill="#7aa2ff" font-size="11" text-anchor="middle">电源链：电池→充电→开关→升压5V→主板 · 灯环单独从 MT3608 IN+ 取 3.7V</text>
+    </svg>
+    <figcaption><b>看懂这张就懂整体了</b>：屏用 8 线接主板；灯环 DIN 经 470Ω 接主板 D2；电源链一路串下来到主板 5V；灯环电源从开关后的 MT3608 IN+ 取 3.7V（这样开关能一起关灯环）。下面 (A)–(E) 是每段的放大接法。</figcaption>
+  </figure>
+
+  <div class="legend">
+    <span><i class="sw" style="background:#e74c3c"></i>正极 / 电源</span>
+    <span><i class="sw" style="background:#95a5b8"></i>GND 地</span>
+    <span><i class="sw" style="background:#f1c40f"></i>数据/信号</span>
+    <span><i class="sw" style="background:#2ecc71"></i>数据/信号</span>
+    <span>● 焊点（线落在引脚圆心）</span>
+  </div>
+
+  <!-- (A) 屏 -->
+  <h3>(A) 屏幕 ↔ 主板（8 根线，平行直连）</h3>
+  <div class="warn"><strong>⚠ 屏的 VCC 一定接 3.3V（3V3），千万别接 5V，会烧屏！</strong></div>
+  <figure>
+    <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg">
+      <style>.pl{font-size:11px;font-weight:bold}.pin{stroke:#0b0d11;stroke-width:1}</style>
+      <!-- 屏 box -->
+      <rect x="60" y="34" width="160" height="266" rx="10" fill="#1a1432" stroke="#7aa2ff" stroke-width="1.5"/>
+      <text x="140" y="26" fill="#e8eaed" font-size="12.5" font-weight="bold" text-anchor="middle">② 1.54″ 彩屏（背面）</text>
+      <rect x="92" y="48" width="96" height="62" rx="4" fill="#0b0d11" stroke="#3a4150"/>
+      <!-- board box -->
+      <rect x="500" y="34" width="160" height="266" rx="10" fill="#0c2a1e" stroke="#2ecc71" stroke-width="1.5"/>
+      <text x="580" y="26" fill="#e8eaed" font-size="12.5" font-weight="bold" text-anchor="middle">① ESP32-S3 主板</text>
+      <!-- 8 条平行轨道：屏右缘 x=220 → 主板左缘 x=500，同 y 同序，零交叉 -->
+      <!-- 行: y, screenLabel, boardLabel, color -->
+      <g font-family="inherit">
+        <!-- GND -->
+        <line x1="220" y1="70" x2="500" y2="70" stroke="#95a5b8" stroke-width="2.5"/>
+        <circle cx="220" cy="70" r="4" fill="#95a5b8" class="pin"/><circle cx="500" cy="70" r="4" fill="#95a5b8" class="pin"/>
+        <text x="212" y="66" fill="#95a5b8" class="pl" text-anchor="end">GND</text>
+        <text x="508" y="66" fill="#95a5b8" class="pl">GND</text>
+        <!-- VCC -->
+        <line x1="220" y1="100" x2="500" y2="100" stroke="#e74c3c" stroke-width="2.5"/>
+        <circle cx="220" cy="100" r="4" fill="#e74c3c" class="pin"/><circle cx="500" cy="100" r="4" fill="#e74c3c" class="pin"/>
+        <text x="212" y="96" fill="#e74c3c" class="pl" text-anchor="end">VCC</text>
+        <text x="508" y="96" fill="#e74c3c" class="pl">3V3</text>
+        <!-- SCL -->
+        <line x1="220" y1="130" x2="500" y2="130" stroke="#f1c40f" stroke-width="2.5"/>
+        <circle cx="220" cy="130" r="4" fill="#f1c40f" class="pin"/><circle cx="500" cy="130" r="4" fill="#f1c40f" class="pin"/>
+        <text x="212" y="126" fill="#f1c40f" class="pl" text-anchor="end">SCL</text>
+        <text x="508" y="126" fill="#f1c40f" class="pl">D13 (GPIO48)</text>
+        <!-- SDA -->
+        <line x1="220" y1="160" x2="500" y2="160" stroke="#2ecc71" stroke-width="2.5"/>
+        <circle cx="220" cy="160" r="4" fill="#2ecc71" class="pin"/><circle cx="500" cy="160" r="4" fill="#2ecc71" class="pin"/>
+        <text x="212" y="156" fill="#2ecc71" class="pl" text-anchor="end">SDA</text>
+        <text x="508" y="156" fill="#2ecc71" class="pl">D11 (GPIO38)</text>
+        <!-- RES -->
+        <line x1="220" y1="190" x2="500" y2="190" stroke="#4f8cff" stroke-width="2.5"/>
+        <circle cx="220" cy="190" r="4" fill="#4f8cff" class="pin"/><circle cx="500" cy="190" r="4" fill="#4f8cff" class="pin"/>
+        <text x="212" y="186" fill="#4f8cff" class="pl" text-anchor="end">RES</text>
+        <text x="508" y="186" fill="#4f8cff" class="pl">D8 (GPIO17)</text>
+        <!-- DC -->
+        <line x1="220" y1="220" x2="500" y2="220" stroke="#dfe6ee" stroke-width="2.5"/>
+        <circle cx="220" cy="220" r="4" fill="#dfe6ee" class="pin"/><circle cx="500" cy="220" r="4" fill="#dfe6ee" class="pin"/>
+        <text x="212" y="216" fill="#dfe6ee" class="pl" text-anchor="end">DC</text>
+        <text x="508" y="216" fill="#dfe6ee" class="pl">D7 (GPIO10)</text>
+        <!-- CS -->
+        <line x1="220" y1="250" x2="500" y2="250" stroke="#e67e22" stroke-width="2.5"/>
+        <circle cx="220" cy="250" r="4" fill="#e67e22" class="pin"/><circle cx="500" cy="250" r="4" fill="#e67e22" class="pin"/>
+        <text x="212" y="246" fill="#e67e22" class="pl" text-anchor="end">CS</text>
+        <text x="508" y="246" fill="#e67e22" class="pl">D10 (GPIO21)</text>
+        <!-- BL -->
+        <line x1="220" y1="280" x2="500" y2="280" stroke="#8a93a3" stroke-width="2.5"/>
+        <circle cx="220" cy="280" r="4" fill="#8a93a3" class="pin"/><circle cx="500" cy="280" r="4" fill="#8a93a3" class="pin"/>
+        <text x="212" y="276" fill="#8a93a3" class="pl" text-anchor="end">BL</text>
+        <text x="508" y="276" fill="#8a93a3" class="pl">D9 (GPIO18)</text>
+      </g>
+      <text x="360" y="312" fill="#7aa2ff" font-size="11" text-anchor="middle">同色线 = 同一根 · 上下顺序两边完全对齐 · 平行直连不交叉</text>
+    </svg>
+    <figcaption><b>屏 8 线接法</b>：把屏 8 个引脚和主板对应脚<b>按同一上下顺序排成两列，平行直连</b>——这样 8 根线永不交叉。每根线两端都有焊点（●）落在引脚圆心。<b>屏 VCC → 主板 3V3，绝不接 5V。</b></figcaption>
+  </figure>
+
+  <!-- (B) 灯环 -->
+  <h3>(B) 灯环 ↔ 主板（含 470Ω 电阻 + 470µF 电容）</h3>
+  <div class="warn"><strong>⚠ 灯环 DIN 接的是主板 GPIO5。</strong>注意：很多 ESP32-S3 Nano 克隆板<b>丝印写 D2 才是 GPIO5</b>（丝印的「D5」往往不是 GPIO5）。本指南固件按 <code>GPIO5</code> 配置——接到丝印 <b>D2</b> 那个脚。灯不亮先怀疑这里。</div>
+  <div class="tip"><strong>💡 为什么灯环电源接锂电 3.7V，不接主板 5V？</strong>WS2812B 用 5V 供电时要求数据高电平门槛 3.5V，而主板 GPIO 只能输出 3.3V，正好卡边界。改用 <b>3.7V 锂电直供</b>后 3.3V 数据就在安全区，<b>免电平转换芯片</b>。代价仅是灯略暗，状态指示无感。</div>
+  <figure>
+    <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg">
+      <style>.pl{font-size:11px;font-weight:bold}.nn{fill:#9aa0aa;font-size:10.5px}.pin{stroke:#0b0d11;stroke-width:1}</style>
+      <!-- 灯环（左），3 脚接线柱画在右侧引出，避免标签压在环上 -->
+      <text x="120" y="40" fill="#e8eaed" font-size="12.5" font-weight="bold" text-anchor="middle">③ WS2812B 24 灯环（背面）</text>
+      <circle cx="120" cy="150" r="62" fill="none" stroke="#1d212b" stroke-width="15"/>
+      <g>
+        <circle cx="120" cy="88" r="4" fill="#2ecc71"/><circle cx="151" cy="96" r="4" fill="#f1c40f"/>
+        <circle cx="174" cy="119" r="4" fill="#e74c3c"/><circle cx="182" cy="150" r="4" fill="#2ecc71"/>
+        <circle cx="174" cy="181" r="4" fill="#f1c40f"/><circle cx="151" cy="204" r="4" fill="#2ecc71"/>
+        <circle cx="120" cy="212" r="4" fill="#f1c40f"/><circle cx="89" cy="204" r="4" fill="#e74c3c"/>
+        <circle cx="66" cy="181" r="4" fill="#2ecc71"/><circle cx="58" cy="150" r="4" fill="#f1c40f"/>
+        <circle cx="66" cy="119" r="4" fill="#2ecc71"/><circle cx="89" cy="96" r="4" fill="#e74c3c"/>
+      </g>
+      <!-- 3 脚接线柱：横排在环右下，清晰分开 -->
+      <rect x="180" y="232" width="92" height="26" rx="4" fill="#11151d" stroke="#3a4150"/>
+      <circle cx="196" cy="245" r="4.5" fill="#e74c3c" class="pin"/><text x="196" y="272" fill="#e74c3c" class="pl" text-anchor="middle">VCC</text>
+      <circle cx="226" cy="245" r="4.5" fill="#f1c40f" class="pin"/><text x="226" y="272" fill="#f1c40f" class="pl" text-anchor="middle">DIN</text>
+      <circle cx="256" cy="245" r="4.5" fill="#95a5b8" class="pin"/><text x="256" y="272" fill="#95a5b8" class="pl" text-anchor="middle">GND</text>
+      <line x1="155" y1="200" x2="190" y2="238" stroke="#3a4150" stroke-width="1"/>
+      <text x="150" y="232" class="nn" text-anchor="end">接线柱→</text>
+
+      <!-- 主板（右上） -->
+      <rect x="540" y="40" width="160" height="96" rx="10" fill="#0c2a1e" stroke="#2ecc71" stroke-width="1.5"/>
+      <text x="620" y="32" fill="#e8eaed" font-size="12.5" font-weight="bold" text-anchor="middle">① ESP32-S3 主板</text>
+      <circle cx="540" cy="78" r="4" fill="#f1c40f" class="pin"/><text x="550" y="82" fill="#f1c40f" class="pl">D2 = GPIO5</text>
+      <circle cx="540" cy="112" r="4" fill="#95a5b8" class="pin"/><text x="550" y="116" fill="#95a5b8" class="pl">GND（共地）</text>
+
+      <!-- 取电点：开关之后的 3.7V = MT3608 IN+（右下） -->
+      <rect x="540" y="250" width="160" height="74" rx="10" fill="#23180c" stroke="#e67e22" stroke-width="1.5"/>
+      <text x="620" y="240" fill="#e8eaed" font-size="11" font-weight="bold" text-anchor="middle">MT3608 IN+</text>
+      <text x="620" y="254" fill="#9aa0aa" font-size="9.5" text-anchor="middle">（开关之后的 3.7V）</text>
+      <circle cx="540" cy="288" r="4" fill="#e74c3c" class="pin"/><text x="550" y="292" fill="#e74c3c" class="pl">IN+ 3.7V</text>
+      <circle cx="540" cy="312" r="4" fill="#95a5b8" class="pin"/><text x="550" y="316" fill="#95a5b8" class="pl">GND −</text>
+
+      <!-- DIN: 灯环DIN(226,245) → 上行 → 经470Ω → 主板D2(540,78) -->
+      <!-- 走线: (226,245)->(226,180)  电阻在180这条横线上 -->
+      <path d="M226 245 V 180 H 300" fill="none" stroke="#f1c40f" stroke-width="2.5"/>
+      <!-- 电阻 zigzag 横向 300->372 -->
+      <path d="M300 180 l6 0 l4 -7 l8 14 l8 -14 l8 14 l8 -14 l4 7 l6 0" fill="none" stroke="#f1c40f" stroke-width="2.5"/>
+      <text x="336" y="166" class="nn" text-anchor="middle">470Ω（靠灯环端）</text>
+      <path d="M372 180 H 470 V 78 H 540" fill="none" stroke="#f1c40f" stroke-width="2.5"/>
+      <circle cx="226" cy="245" r="3" fill="#f1c40f"/><circle cx="540" cy="78" r="3" fill="#f1c40f"/>
+
+      <!-- VCC: 灯环VCC(196,245) → 下 → 右 → 锂电+(540,288)；中途 x=360 下挂电容 -->
+      <path d="M196 245 V 288 H 536" fill="none" stroke="#e74c3c" stroke-width="2.5"/>
+      <circle cx="196" cy="245" r="3" fill="#e74c3c"/><circle cx="540" cy="288" r="3" fill="#e74c3c"/>
+
+      <!-- GND: 灯环GND(256,245) → 下 → 锂电- ; 并分叉到主板GND(共地) -->
+      <path d="M256 245 V 312 H 536" fill="none" stroke="#95a5b8" stroke-width="2.5"/>
+      <circle cx="256" cy="245" r="3" fill="#95a5b8"/><circle cx="540" cy="312" r="3" fill="#95a5b8"/>
+      <!-- 共地分叉：从GND线(420,312)上引到主板GND(540,112) -->
+      <path d="M420 312 V 112 H 540" fill="none" stroke="#95a5b8" stroke-width="1.6" stroke-dasharray="4 3"/>
+      <circle cx="420" cy="312" r="3" fill="#95a5b8"/><circle cx="540" cy="112" r="3" fill="#95a5b8"/>
+      <text x="430" y="210" class="nn">共地（虚线）</text>
+
+      <!-- 电容：跨在 VCC(y=288) 与 GND(y=312) 之间，竖直，极性符号，位于 x=360 -->
+      <!-- 正极引线从 VCC 线 (360,288) 下到 +板 -->
+      <line x1="360" y1="288" x2="360" y2="296" stroke="#e74c3c" stroke-width="2"/>
+      <line x1="349" y1="296" x2="371" y2="296" stroke="#e74c3c" stroke-width="3"/><!-- + 长直板 -->
+      <text x="377" y="297" fill="#e74c3c" font-size="12" font-weight="bold">+</text>
+      <path d="M349 303 Q360 308 371 303" fill="none" stroke="#95a5b8" stroke-width="3"/><!-- - 弧板 -->
+      <line x1="360" y1="306" x2="360" y2="312" stroke="#95a5b8" stroke-width="2"/>
+      <circle cx="360" cy="288" r="3" fill="#e74c3c"/><circle cx="360" cy="312" r="3" fill="#95a5b8"/>
+      <text x="360" y="334" class="nn" text-anchor="middle">470µF 电容（长脚+ 接 VCC）</text>
+
+      <text x="360" y="352" fill="#e67e22" font-size="11.5" text-anchor="middle" font-weight="bold">⚠ 接 DIN 不接 DOUT · 电容长脚(+)朝 VCC 别接反 · 灯环与主板必须共地</text>
+    </svg>
+    <figcaption><b>灯环接法（3.7V 直供）</b>：DIN 经 <b>470Ω</b>（靠灯环端，画成折线电阻、导线从中穿过）接主板 <b>D2=GPIO5</b>；VCC 接 <b>MT3608 IN+（开关之后的 3.7V）</b>——这样开关能一起关掉灯环；GND 与主板<b>共地</b>（虚线）；VCC↔GND 间跨一个 <b>470µF 电容</b>，<b>长脚正极朝 VCC</b>（符号长直板=+、短弧板=−）。</figcaption>
+  </figure>
+  <table>
+    <tr><th>灯环脚</th><th>接到</th><th>中间元件</th><th>线色</th></tr>
+    <tr><td>VCC（+）</td><td><b>开关之后、升压之前的 3.7V</b>（= MT3608 的 IN+）</td><td>VCC↔GND 间并 470µF（长脚+朝VCC）</td><td>红</td></tr>
+    <tr><td>GND（−）</td><td>锂电负极 + 主板 GND（<b>共地</b>）</td><td>—</td><td>灰/黑</td></tr>
+    <tr><td>DIN</td><td>主板 <b>D2（=GPIO5）</b></td><td>串 <b>470Ω</b>（靠灯环端）</td><td>黄</td></tr>
+  </table>
+  <div class="warn"><strong>⚠ 灯环 VCC 必须接「开关之后」的 3.7V（MT3608 IN+），不能接 TP4056 OUT+ / 电池正极！</strong>否则开关只切主板、切不掉灯环 → 关机后灯环有电没信号，显示乱码常亮。接到开关后的 IN+，开关一关主板和灯环一起灭。</div>
+
+  <!-- (C) 电源链 -->
+  <h3>(C) 电源链：电池 → 充电 → 开关 → 升压 → 主板</h3>
+  <p>这是「有先后顺序」的部分，用<b>分镜格</b>一步一步看，再看整图：</p>
+  <div class="frames">
+    <div class="frame"><span class="n">1</span><div class="t">电池 → TP4056</div><div class="d">电池 +/− 焊到 TP4056 的 <b>B+ / B−</b></div></div>
+    <div class="frame"><span class="n">2</span><div class="t">TP4056 → 开关</div><div class="d">OUT+ 接自锁开关一脚；OUT− 留作总负极</div></div>
+    <div class="frame"><span class="n">3</span><div class="t">开关 → MT3608</div><div class="d">开关另一脚 → MT3608 <b>IN+</b>；OUT− → IN−</div></div>
+    <div class="frame"><span class="n">4</span><div class="t">先调 5V！</div><div class="d">⚠ MT3608 单独通电，万用表拧到 <b>5.0V</b></div></div>
+    <div class="frame"><span class="n">5</span><div class="t">MT3608 → 主板</div><div class="d">调好后 OUT+/OUT− → 主板 <b>5V / GND</b></div></div>
+  </div>
+  <figure>
+    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg">
+      <style>.bx{fill:#1d212b;stroke:#2a2f3a;stroke-width:1.5}.ti{fill:#e8eaed;font-size:12px;font-weight:bold}.pl{font-size:10px;font-weight:bold}.nn{fill:#9aa0aa;font-size:10px}.pin{stroke:#0b0d11;stroke-width:1}</style>
+      <!-- 五个盒子横排，正交连接 -->
+      <!-- 电池 -->
+      <rect x="20" y="110" width="96" height="74" rx="9" class="bx" stroke="#e67e22"/>
+      <text x="68" y="100" class="ti" text-anchor="middle">🔋 电池</text>
+      <circle cx="116" cy="132" r="4" fill="#e74c3c" class="pin"/><text x="108" y="128" fill="#e74c3c" class="pl" text-anchor="end">+</text>
+      <circle cx="116" cy="162" r="4" fill="#95a5b8" class="pin"/><text x="108" y="158" fill="#95a5b8" class="pl" text-anchor="end">−</text>
+      <!-- TP4056 -->
+      <rect x="176" y="96" width="120" height="104" rx="9" class="bx" stroke="#4f8cff"/>
+      <text x="236" y="88" class="ti" text-anchor="middle">⑤ TP4056 充电</text>
+      <rect x="216" y="84" width="40" height="10" rx="2" fill="#2a2f3a"/>
+      <circle cx="176" cy="132" r="4" fill="#e74c3c" class="pin"/><text x="184" y="128" fill="#e74c3c" class="pl">B+</text>
+      <circle cx="176" cy="162" r="4" fill="#95a5b8" class="pin"/><text x="184" y="158" fill="#95a5b8" class="pl">B−</text>
+      <circle cx="296" cy="132" r="4" fill="#e74c3c" class="pin"/><text x="288" y="128" fill="#e74c3c" class="pl" text-anchor="end">OUT+</text>
+      <circle cx="296" cy="180" r="4" fill="#95a5b8" class="pin"/><text x="288" y="176" fill="#95a5b8" class="pl" text-anchor="end">OUT−</text>
+      <!-- 开关 -->
+      <rect x="356" y="100" width="96" height="60" rx="9" class="bx" stroke="#8a93a3"/>
+      <text x="404" y="92" class="ti" text-anchor="middle">⑦ 自锁开关</text>
+      <circle cx="356" cy="130" r="4" fill="#e74c3c" class="pin"/><text x="364" y="126" fill="#9aa0aa" class="pl">a</text>
+      <circle cx="452" cy="130" r="4" fill="#e74c3c" class="pin"/><text x="444" y="126" fill="#9aa0aa" class="pl" text-anchor="end">b</text>
+      <!-- MT3608 -->
+      <rect x="356" y="196" width="120" height="80" rx="9" class="bx" stroke="#4f8cff" stroke-width="2"/>
+      <text x="416" y="216" class="ti" text-anchor="middle">⑥ MT3608 升压</text>
+      <circle cx="356" cy="240" r="4" fill="#e74c3c" class="pin"/><text x="364" y="236" fill="#e74c3c" class="pl">IN+</text>
+      <circle cx="356" cy="262" r="4" fill="#95a5b8" class="pin"/><text x="364" y="258" fill="#95a5b8" class="pl">IN−</text>
+      <circle cx="476" cy="240" r="4" fill="#e74c3c" class="pin"/><text x="468" y="236" fill="#e74c3c" class="pl" text-anchor="end">OUT+</text>
+      <circle cx="476" cy="262" r="4" fill="#95a5b8" class="pin"/><text x="468" y="258" fill="#95a5b8" class="pl" text-anchor="end">OUT−</text>
+      <!-- 主板 -->
+      <rect x="560" y="196" width="120" height="80" rx="9" class="bx" stroke="#2ecc71"/>
+      <text x="620" y="216" class="ti" text-anchor="middle">① 主板</text>
+      <circle cx="560" cy="240" r="4" fill="#e74c3c" class="pin"/><text x="568" y="236" fill="#e74c3c" class="pl">5V</text>
+      <circle cx="560" cy="262" r="4" fill="#95a5b8" class="pin"/><text x="568" y="258" fill="#95a5b8" class="pl">GND</text>
+
+      <!-- 连线（正交） -->
+      <!-- 1 电池+ → B+ -->
+      <line x1="116" y1="132" x2="176" y2="132" stroke="#e74c3c" stroke-width="2.5"/>
+      <!-- 电池- → B- -->
+      <line x1="116" y1="162" x2="176" y2="162" stroke="#95a5b8" stroke-width="2.5"/>
+      <!-- 2 OUT+ → 开关a -->
+      <path d="M296 132 H 326 V 130 H 356" fill="none" stroke="#e74c3c" stroke-width="2.5"/>
+      <!-- 3 开关b → IN+ : 右出，下行，回到IN+ -->
+      <path d="M452 130 H 500 V 240 H 476" fill="none" stroke="#e74c3c" stroke-width="2.5"/>
+      <text x="506" y="190" class="nn" fill="#e74c3c">开关→IN+</text>
+      <!-- OUT- → IN-  (TP的OUT- 走下方到 MT IN-) -->
+      <path d="M296 180 H 320 V 262 H 356" fill="none" stroke="#95a5b8" stroke-width="2.5"/>
+      <!-- 5 MT OUT+/OUT- → 主板（虚线，调好5V后接） -->
+      <path d="M476 240 H 560" fill="none" stroke="#e74c3c" stroke-width="2.5" stroke-dasharray="5 4"/>
+      <path d="M476 262 H 560" fill="none" stroke="#95a5b8" stroke-width="2.5" stroke-dasharray="5 4"/>
+      <text x="518" y="228" class="nn" fill="#e67e22" font-weight="bold" text-anchor="middle">调好5V才接!</text>
+    </svg>
+    <figcaption><b>电源链</b>：实线先焊，<b>虚线（MT3608→主板）等第 4 步调好 5V 再接</b>。<b>灯环不接这条 5V</b>，它从 <b>MT3608 IN+（开关之后的 3.7V）</b>取电（见 B 节）——这样开关能同时关掉主板和灯环。红=正极、灰=负极，别接反。<br><b>充电方法</b>：USB-C 插 TP4056 自己的口（不是主板口）；充电时把主开关拨「关」，防 USB / 升压 / 电池三路反灌。</figcaption>
+  </figure>
+
+  <!-- (D) 电池电量 -->
+  <h3>(D) 电池电量监测（可选，2× 2.2kΩ 分压）</h3>
+  <div class="tip"><strong>💡 为什么要两个电阻？</strong>锂电满电 4.2V，但主板 ADC 最高只能量 ~3.3V，直接接会超量程甚至烧脚。两个<b>等值电阻</b>串联把电压<b>砍一半</b>（4.2V→2.1V），中间抽头给 ADC 读。固件已按 2:1 配置，<b>不接也不影响其它功能</b>（自动判定「无传感器」）。电阻无正负极，但<b>抽头要接在两电阻中间</b>。</div>
+  <figure>
+    <svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg">
+      <style>.pl{font-size:11px;font-weight:bold}.nn{fill:#9aa0aa;font-size:10.5px}.pin{stroke:#0b0d11;stroke-width:1}</style>
+      <!-- 上：BAT+ 节点 -->
+      <circle cx="200" cy="40" r="4" fill="#e74c3c" class="pin"/>
+      <text x="210" y="44" fill="#e74c3c" class="pl">锂电 BAT+ （3.7~4.2V）</text>
+      <!-- R1 竖直 zigzag 40->110 -->
+      <line x1="200" y1="40" x2="200" y2="56" stroke="#e74c3c" stroke-width="2.5"/>
+      <path d="M200 56 l0 6 l-7 4 l14 8 l-14 8 l14 8 l-7 4 l0 6" fill="none" stroke="#cfd6e0" stroke-width="2.5"/>
+      <line x1="200" y1="100" x2="200" y2="116" stroke="#cfd6e0" stroke-width="2.5"/>
+      <text x="216" y="86" class="nn">R1 = 2.2kΩ</text>
+      <!-- 抽头节点 116 -->
+      <circle cx="200" cy="116" r="4.5" fill="#f1c40f" class="pin"/>
+      <!-- 抽头 → 右 → GPIO1 -->
+      <path d="M200 116 H 470" fill="none" stroke="#f1c40f" stroke-width="2.5"/>
+      <rect x="500" y="92" width="180" height="48" rx="9" fill="#0c2a1e" stroke="#2ecc71" stroke-width="1.5"/>
+      <text x="590" y="84" fill="#e8eaed" font-size="12" font-weight="bold" text-anchor="middle">① 主板</text>
+      <circle cx="500" cy="116" r="4" fill="#f1c40f" class="pin"/><text x="510" y="120" fill="#f1c40f" class="pl">A0 = GPIO1（ADC）</text>
+      <text x="335" y="108" class="nn" text-anchor="middle">中间抽头 → ADC</text>
+      <!-- R2 竖直 zigzag 116->186 -->
+      <line x1="200" y1="116" x2="200" y2="132" stroke="#cfd6e0" stroke-width="2.5"/>
+      <path d="M200 132 l0 6 l-7 4 l14 8 l-14 8 l14 8 l-7 4 l0 6" fill="none" stroke="#cfd6e0" stroke-width="2.5"/>
+      <line x1="200" y1="176" x2="200" y2="192" stroke="#cfd6e0" stroke-width="2.5"/>
+      <text x="216" y="162" class="nn">R2 = 2.2kΩ</text>
+      <!-- GND 节点 192 -->
+      <circle cx="200" cy="192" r="4" fill="#95a5b8" class="pin"/>
+      <path d="M200 192 V 220 H 540" fill="none" stroke="#95a5b8" stroke-width="2.5"/>
+      <circle cx="540" cy="220" r="4" fill="#95a5b8" class="pin"/>
+      <text x="548" y="224" fill="#95a5b8" class="pl">主板 GND（共地）</text>
+      <text x="210" y="214" fill="#95a5b8" class="pl">GND</text>
+    </svg>
+    <figcaption><b>电池分压</b>：BAT+ →[R1 2.2kΩ]→ <b>中间抽头</b> →[R2 2.2kΩ]→ GND；<b>抽头</b>接主板 <b>A0=GPIO1</b>，GND 共地。两电阻等值即可（无正负极），关键是抽头取在两者<b>正中间</b>。接好后统计页 / 网页自动显示电量 % + 低电红字告警。</figcaption>
+  </figure>
+
+  <!-- (E) 按钮 -->
+  <h3>(E) 实体按钮（可选，翻页 / 调暗）</h3>
+  <div class="tip"><strong>💡 用什么零件：</strong>任意 <b>2 脚自复位轻触开关</b>（momentary tactile switch，按下导通、松开断开，<b>无正负极</b>）。淘宝搜「自复位按钮开关 2脚」或「6×6 轻触开关」。常见的 <b>6×6mm 4 脚</b>轻触开关也能用——它 4 个脚其实是两两内部相连的一组，<b>取对角的两个脚</b>即可。</div>
+  <p>接法：按钮一脚接 <b>GPIO2</b>（这块板丝印是 <b>A1</b>，不是 D1！低位 GPIO 标 A 开头），另一脚接 <b>GND</b>。固件用内部上拉，不按=高电平，按下接通到 GND=触发。短按翻页、长按调暗。<b>不接也行</b>——手机打开 <code>cc-hud.local</code> 网页有同样的「next page / dim」按钮。</p>
+  <div class="warn"><strong>⚠ 丝印对照（本 clone 板 = Arduino Nano ESP32 真排列）：</strong>GPIO1=丝印 <b>A0</b>、GPIO2=丝印 <b>A1</b>、GPIO5=丝印 <b>D2</b>。低位 GPIO 标 A0–A7，别照 GPIO 号去找「D+数字」。拿不准就用万用表通断档：从丝印脚量到 ESP32 芯片对应引脚确认。</div>
+  <figure>
+    <svg viewBox="0 0 720 150" xmlns="http://www.w3.org/2000/svg">
+      <style>.pl{font-size:11px;font-weight:bold}.pin{stroke:#0b0d11;stroke-width:1}</style>
+      <rect x="40" y="40" width="170" height="70" rx="9" fill="#0c2a1e" stroke="#2ecc71" stroke-width="1.5"/>
+      <text x="125" y="32" fill="#e8eaed" font-size="12" font-weight="bold" text-anchor="middle">① 主板</text>
+      <circle cx="210" cy="62" r="4" fill="#f1c40f" class="pin"/><text x="200" y="66" fill="#f1c40f" class="pl" text-anchor="end">A1 = GPIO2</text>
+      <circle cx="210" cy="92" r="4" fill="#95a5b8" class="pin"/><text x="200" y="96" fill="#95a5b8" class="pl" text-anchor="end">GND</text>
+      <!-- 按钮符号 -->
+      <line x1="210" y1="62" x2="360" y2="62" stroke="#f1c40f" stroke-width="2.5"/>
+      <circle cx="210" cy="62" r="3" fill="#f1c40f"/>
+      <line x1="360" y1="52" x2="360" y2="72" stroke="#cfd6e0" stroke-width="2"/>
+      <line x1="400" y1="52" x2="400" y2="72" stroke="#cfd6e0" stroke-width="2"/>
+      <path d="M360 56 H 400" fill="none" stroke="#cfd6e0" stroke-width="2.5"/>
+      <circle cx="380" cy="46" r="3" fill="none" stroke="#cfd6e0" stroke-width="1.5"/>
+      <text x="380" y="34" fill="#9aa0aa" font-size="11" text-anchor="middle">轻触按钮</text>
+      <line x1="400" y1="62" x2="500" y2="62" stroke="#95a5b8" stroke-width="2.5"/>
+      <path d="M500 62 V 92 H 214" fill="none" stroke="#95a5b8" stroke-width="2.5"/>
+      <circle cx="210" cy="92" r="3" fill="#95a5b8"/>
+      <text x="540" y="66" fill="#9aa0aa" font-size="11">短按=翻页 · 长按=调暗</text>
+    </svg>
+    <figcaption><b>按钮接法</b>：GPIO2 ── 按钮 ── GND，就这两根。固件已就绪，接上即用；不接则用网页按钮。</figcaption>
+  </figure>
+
+  <!-- ============================ 6 ============================ -->
+  <h2 id="v5"><span class="num">6</span>调 5V（MT3608）——上电前最关键一步</h2>
+  <div class="cornell">
+    <div class="cue"><h4>线索</h4><p class="q">为什么先调 5V？</p><ul><li>裸板出厂可能输出 12V+</li><li>直接接主板 = 烧板</li><li>万用表拧到 5.0V 再接</li></ul></div>
+    <div class="notes">
+      <div class="frames">
+        <div class="frame"><span class="n">1</span><div class="t">单独通电</div><div class="d">MT3608 IN 接电池（经开关），OUT <b>先不接主板</b></div></div>
+        <div class="frame"><span class="n">2</span><div class="t">表笔搭 OUT</div><div class="d">万用表直流电压档，红表笔 OUT+、黑表笔 OUT−</div></div>
+        <div class="frame"><span class="n">3</span><div class="t">拧电位器</div><div class="d">慢拧蓝色电位器，读数调到 <b>5.0V</b></div></div>
+        <div class="frame"><span class="n">4</span><div class="t">断电再接</div><div class="d">断电，OUT+/OUT− 接主板 5V/GND</div></div>
+      </div>
+      <div class="warn"><strong>⚠ 这步不能省、不能猜。</strong>没有万用表就别接升压——一旦输出过压，主板瞬间烧毁不可逆。</div>
+      <div class="gate"><strong>✓ 过关标准：</strong>万用表稳定读 <b>4.9–5.1V</b> 才能接主板。读数乱跳/偏高 → 继续拧电位器；拧到底还高 → 模块不对，换一个。</div>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>MT3608 必须先单独通电、万用表拧到 5.0V，再接主板。</div>
+  </div>
+
+  <!-- ============================ 7 ============================ -->
+  <h2 id="flash"><span class="num">7</span>刷固件（三条路）</h2>
+  <div class="cornell">
+    <div class="cue"><h4>线索</h4><p class="q">怎么把固件烧进去？</p><ul><li>首刷走 <b>USB 串口</b></li><li>之后 <b>BLE / WiFi OTA</b> 无线刷</li><li>插电脑黑屏 = CDC 时序坑</li></ul></div>
+    <div class="notes">
+      <p><b>三条路，按"什么情况用哪条"选：</b></p>
+      <table>
+        <tr><th>方式</th><th>什么时候用</th><th>速度</th><th>前提</th></tr>
+        <tr><td><b>① USB 串口</b></td><td>第一次刷 / 彻底救砖</td><td>~10s</td><td>USB 数据线 + 板 USB 数据正常</td></tr>
+        <tr><td><b>② BLE OTA</b></td><td>无 WiFi / WiFi 刷不了时救砖</td><td>~22s</td><td>蓝牙权限 + 设备在广播</td></tr>
+        <tr><td><b>③ WiFi OTA</b></td><td>日常迭代（最快）</td><td>~2s 上传</td><td>已配过 WiFi（见下）</td></tr>
+      </table>
+      <p class="small muted"><b>决策树：</b>第一次 → 走①把固件刷进去 → 用 <code>push_wifi.py</code> 配一次 WiFi → 之后都用③。③ 刷不动了 / 设备失联 → 用② BLE 救回来（BLE 不依赖 WiFi）。</p>
+
+      <pre># ① USB 首刷
+pio run -e esp32s3_nano -t upload
+
+# ③ WiFi OTA（日常，先 build 再传；mDNS 抽风就用 IP）
+pio run -e esp32s3_nano_wifi -t upload
+pio run -e esp32s3_nano_wifi -t upload --upload-port 192.168.x.x
+
+# ② BLE 救砖（不需要 WiFi，需蓝牙权限）
+python ota.py --address &lt;设备UUID&gt; \
+  --firmware .pio/build/esp32s3_nano/firmware.bin --verbose</pre>
+
+      <div class="warn"><strong>⚠ 坑1：USB-C 插电脑，屏背光亮但不显示。</strong><code>ARDUINO_USB_CDC_ON_BOOT=1</code> 时插活动 USB 主机会在开机早期触发枚举，干扰 ST7789 初始化时序。本指南固件已把 <code>displayInit()</code> 提到 <code>Serial.begin()</code> 之前修掉。</div>
+      <div class="warn"><strong>⚠ 坑2：USB 首刷识别不到串口。</strong>这块板 USB 数据偶尔不稳。按住 <b>BOOT(GPIO0)</b> → 点一下 <b>RST</b> → 松开，强制进 ROM 下载模式（只有 RST 键时，用镊子把 GPIO0 短到 GND 替代 BOOT）。还不行就换条数据线（很多是充电线没数据）。</div>
+      <div class="gate"><strong>✓ 刷成功的标志：</strong>USB 看到 <code>Writing... 100%</code> + 自动重启；OTA 看到 <code>100% / OK / Success</code>，设备屏一闪回到 HUD。<b>WiFi OTA 进行时屏幕会显示进度条。</b></div>
+      <div class="gate bad"><strong>⚠ 救砖口诀：</strong>WiFi 刷不进 / 设备 ping 不通 → <b>别慌，BLE OTA 一定能救</b>（蓝牙独立于 WiFi）。跑上面 ② 那条即可。</div>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>首刷 USB → 配 WiFi → 日常 WiFi 秒刷；刷挂了用 BLE 救（蓝牙不依赖 WiFi）。</div>
+  </div>
+
+  <!-- ============================ 8 ============================ -->
+  <h2 id="host"><span class="num">8</span>电脑端配置</h2>
+  <div class="cornell">
+    <div class="cue"><h4>线索</h4><p class="q">电脑怎么把数据推给盒子？</p><ul><li>statusline 推额度</li><li>hooks 推状态</li><li>首次推一次 WiFi 凭证</li></ul></div>
+    <div class="notes">
+      <p><b>三步：配网 → 接状态栏 → 接 hooks。</b>(脚本都在仓库 <code>host/</code> 下，先 <code>cd host</code> 建好 <code>.venv</code>)</p>
+
+      <p><b>① 一次性配 WiFi</b>（经蓝牙推 SSID/密码，存盒子 NVS，之后开机自动联网）：</p>
+      <pre>.venv/bin/python push_wifi.py --address &lt;设备UUID&gt; \
+    --ssid '你的WiFi名' --password '你的密码' --verbose</pre>
+
+      <p><b>② 状态栏推额度</b>（<code>~/.claude/settings.json</code>）—— 每次刷新把 5h/7d 额度、ctx、成本、增删行推给盒子，顺带每 10 分钟校时+推天气：</p>
+      <pre>"statusLine": { "type": "command",
+  "command": "/你的路径/cc_hud_esp32/host/cchud-statusline.sh" }</pre>
+
+      <p><b>③ hooks 推状态</b>（同文件 <code>"hooks"</code> 段）—— 把 AI 的 thinking/tool/idle/waiting 推给盒子，多会话自动聚合（<code>waiting&gt;tool&gt;thinking&gt;idle</code>）：</p>
+      <pre>"UserPromptSubmit": [{"hooks":[{"type":"command","command":".../cchud-hook.sh thinking"}]}],
+"PreToolUse":  [{"matcher":"*","hooks":[{"type":"command","command":".../cchud-hook.sh tool"}]}],
+"PostToolUse": [{"matcher":"*","hooks":[{"type":"command","command":".../cchud-hook.sh thinking"}]}],
+"Stop":         [{"hooks":[{"type":"command","command":".../cchud-hook.sh idle"}]}],
+"Notification": [{"hooks":[{"type":"command","command":".../cchud-hook.sh waiting"}]}]</pre>
+      <p class="small muted">仓库 <code>host/settings.hooks.example.json</code> 是可直接抄的完整模板，把路径换成你的。</p>
+
+      <div class="tip"><strong>💡 网页面板：</strong>同 WiFi 下手机/电脑开 <code>http://cc-hud.local/</code>，看实时额度/成本/状态/电量，<b>拖亮度滑块实时调灯环（存 NVS、免重刷）</b>，「next page / dim」遥控按钮 = 实体按钮的零硬件替代，底部还有 <b>固件版本 / 运行时长 / 内存</b>。</div>
+      <div class="gate"><strong>✓ 配好的标志：</strong>跟 Claude Code 对话时，盒子屏数字会变、灯环随状态变色；<code>ping cc-hud.local</code> 通。<b>额度没动？</b>多半是 Claude 这会儿还没下发 rate_limits（订阅用户真用起来才有），正常。</div>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>push_wifi 配网 → statusLine 推额度 → hooks 推状态；之后手机网页实时看+遥控。</div>
+  </div>
+
+  <!-- ============================ 多 AI 工具 ============================ -->
+  <h2 id="multi"><span class="num">🤖</span>支持多个 AI 工具（Claude / Codex …）</h2>
+  <div class="cornell">
+    <div class="cue"><h4>线索</h4><p class="q">不止 Claude Code？</p><ul><li>设备本身工具无关</li><li>Claude：完整(额度+状态)</li><li>Codex：状态灯(turn 级)</li><li>多工具会话自动聚合</li></ul></div>
+    <div class="notes">
+      <p>盒子<b>本身是工具无关的</b>——谁往它推数据就显示谁。不同工具的"接入深度"取决于各自能暴露多少事件：</p>
+      <table>
+        <tr><th>工具</th><th>能显示</th><th>怎么接</th></tr>
+        <tr><td><b>Claude Code</b></td><td>✅ 额度(5h/7d) + 上下文 + 成本 + 4 状态灯(thinking/tool/idle/waiting) + 多会话</td><td>statusLine + hooks（见上节，最完整）</td></tr>
+        <tr><td><b>Codex CLI</b></td><td>🟢 答完一轮 → 灯环<b>绿色脉冲闪三下</b>（无视其它状态，一眼可见"该你看了"）。<span class="small muted">Codex 只暴露 turn 结束事件，没有 working 态</span></td><td>config.toml 的 <code>notify</code> 指向适配器</td></tr>
+        <tr><td>其它工具</td><td>🟡 任意脚本调 <code>push_state.py</code> 即可推状态/灯色</td><td>通用 CLI</td></tr>
+      </table>
+
+      <p><b>Codex 接法</b>——编辑 <code>~/.codex/config.toml</code>：</p>
+      <pre>notify = ["/你的路径/cc_hud_esp32/host/cchud-codex-notify.sh"]</pre>
+      <p class="small muted">Codex 每个 turn 结束会调它 → 灯环<b>绿色脉冲闪三下</b>（"该你看了"）。这个脉冲<b>无视当前状态强制显示 ~1.8 秒</b>，所以即便 Claude 在忙也看得到。</p>
+      <p class="small muted"><b>注意</b>：Codex 的 <code>notify</code> 只支持一个程序。若你已有别的 notify（如 computer-use），用 <code>cchud-codex-dispatch.sh</code> 链式调用同时保留两者，再把 notify 指向它。</p>
+
+      <div class="tip"><strong>💡 想要 Codex 也显示"working"黄灯？</strong>Codex 没有"开始工作"事件，notify 只在答完时触发。要细粒度需开 Codex 的实验性 hooks（<code>~/.codex/hooks.json</code> + <code>codex_hooks</code> flag），把 pre/post 事件指向 <code>cchud-hook.sh tool</code> / <code>idle</code>。实验特性、Windows 不支持。</div>
+      <div class="gate"><strong>✓ Codex 接好的标志：</strong>在终端跑 <code>codex exec "说你好"</code>，Codex 答完那刻 → 灯环<b>绿色闪三下</b>。已实测通过。</div>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>设备工具无关；Claude 走 statusLine+hooks 最完整，Codex 走 config.toml 的 notify 显示 turn 级状态，多工具会话自动聚合。</div>
+  </div>
+
+  <!-- ============================ 可选升级 ============================ -->
+  <h2 id="upgrade"><span class="num">✚</span>可选升级（做不做都行）</h2>
+  <div class="cornell">
+    <div class="cue"><h4>线索</h4><p class="q">还能加什么？</p><ul><li>电量显示（2 电阻）</li><li>实体翻页键（1 按钮）</li><li>亮度/天气/夜间（纯软件）</li></ul></div>
+    <div class="notes">
+      <table>
+        <tr><th>升级</th><th>要什么料</th><th>怎么接 / 怎么设</th><th>效果</th></tr>
+        <tr><td><b>电池电量</b></td><td>2× 2.2kΩ 电阻<br><span class="small muted">(电磁炮余料就有)</span></td><td>BAT+ →[2.2k]→中间抽头→[2.2k]→ GND；抽头接 <b>A0(GPIO1)</b>。详见接线 (D) 节</td><td>统计页 + 网页显示电量%；低电灯环橙闪</td></tr>
+        <tr><td><b>实体按钮</b></td><td>2 脚自复位轻触开关<br><span class="small muted">(电磁炮余料就有)</span></td><td>一脚 <b>A1(GPIO2)</b>、一脚 GND。详见接线 (E) 节</td><td>短按翻页、长按调暗（网页也能做，不接也行）</td></tr>
+        <tr><td><b>灯环亮度</b></td><td>纯软件（网页）</td><td>手机开 <code>cc-hud.local</code>，拖<b>亮度滑块</b>实时调，<b>存 NVS、重启不丢、免重刷</b></td><td>1–60；8–10 柔和、14–18 适中</td></tr>
+        <tr><td><b>时钟（NTP 自动）</b></td><td>纯软件（已内置）</td><td>WiFi 在线时<b>自动从网络授时</b>，<b>断电后自动恢复</b>，无需手动校准</td><td>设 <code>CCHUD_WEATHER_CITY</code> 还可在时钟页显示天气</td></tr>
+        <tr><td><b>夜间自动调暗</b></td><td>纯软件（已内置）</td><td>23:00–07:00 屏+灯自动变暗；空闲 3 分钟也自动调暗、10 分钟熄灯环</td><td>护眼省电，无需操作</td></tr>
+        <tr><td><b>固件版本/健康</b></td><td>纯软件（网页）</td><td>网页底部显示 <code>fw 版本 · 运行时长 · 可用内存</code></td><td>排障/确认刷没刷成功</td></tr>
+      </table>
+      <div class="tip"><strong>💡 这些都是"接上/改完即生效"</strong>：电量和按钮没接时固件判为"无传感器/松开"，绝不误报，可随时补。</div>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>电量=2电阻接A0、按钮=1开关接A1、亮度/天气/夜间是纯软件，都可选、可后补。</div>
+  </div>
+
+  <!-- ============================ 9 ============================ -->
+  <h2 id="case"><span class="num">9</span>装盒（同心圆套屏）</h2>
+  <div class="cornell">
+    <div class="cue"><h4>线索</h4><p class="q">怎么固定？</p><ul><li>灯环 + 屏贴前面板内壁</li><li>同一平面，屏从环中露出</li><li>焊点套热缩管，电池别扎到</li></ul></div>
+    <div class="notes">
+      <figure>
+        <svg viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg">
+          <style>.nn{fill:#9aa0aa;font-size:11px}</style>
+          <!-- 盒子剖面（侧视）：前面板在左，元件分层 -->
+          <rect x="60" y="30" width="600" height="180" rx="12" fill="#10141d" stroke="#3a4150" stroke-width="2"/>
+          <text x="360" y="22" fill="#9aa0aa" font-size="12" text-anchor="middle">盒子内部分层（侧视剖面）</text>
+          <!-- 前面板 -->
+          <rect x="80" y="40" width="14" height="160" rx="3" fill="#1d2a44" stroke="#4f8cff"/>
+          <text x="87" y="224" fill="#7aa2ff" font-size="11" text-anchor="middle">前面板</text>
+          <!-- 灯环（贴面板） -->
+          <rect x="100" y="60" width="16" height="120" rx="4" fill="#1d212b" stroke="#5a6472"/>
+          <text x="108" y="52" class="nn" text-anchor="middle">24 灯环</text>
+          <!-- 屏（贴面板，环中心，同平面） -->
+          <rect x="100" y="98" width="16" height="44" rx="3" fill="#0b0d11" stroke="#3a4150"/>
+          <line x1="116" y1="120" x2="180" y2="120" stroke="#5a6472" stroke-width="1" stroke-dasharray="3 3"/>
+          <text x="186" y="124" class="nn">屏（环正中，同平面）</text>
+          <!-- 主板 -->
+          <rect x="320" y="70" width="120" height="40" rx="5" fill="#0c2a1e" stroke="#2ecc71"/>
+          <text x="380" y="94" fill="#6ee7a0" font-size="11" text-anchor="middle">主板</text>
+          <!-- 电池 -->
+          <rect x="320" y="150" width="120" height="36" rx="5" fill="#23180c" stroke="#e67e22"/>
+          <text x="380" y="172" fill="#e67e22" font-size="11" text-anchor="middle">🔋 电池（焊点套热缩管）</text>
+          <!-- 模块 -->
+          <rect x="470" y="70" width="120" height="40" rx="5" fill="#1d212b" stroke="#4f8cff"/>
+          <text x="530" y="94" fill="#7aa2ff" font-size="11" text-anchor="middle">TP4056+MT3608</text>
+          <!-- 开关 -->
+          <rect x="470" y="150" width="120" height="36" rx="5" fill="#1d212b" stroke="#8a93a3"/>
+          <text x="530" y="172" fill="#9aa0aa" font-size="11" text-anchor="middle">侧面开关 + 充电口</text>
+        </svg>
+        <figcaption><b>装配</b>：灯环和屏都用双面泡棉胶贴在前面板内壁，<b>屏从灯环正中露出、与环同平面</b>（同心圆效果）；主板/电池/电源模块叠在后方；开关和 TP4056 充电口开在盒子侧面。<b>电池焊点务必套热缩管</b>，装盒别被焊点扎破电池。</figcaption>
+      </figure>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>灯环+屏贴前面板同一平面成同心圆，主板电池叠后方，开关充电口开侧面。</div>
+  </div>
+
+  <!-- ============================ 9.5 自检 ============================ -->
+  <h2 id="check"><span class="num">✓</span>成品自检清单</h2>
+  <div class="cornell">
+    <div class="cue"><h4>线索</h4><p class="q">通电前 / 通电后逐项核对</p><ul><li>先断电查焊接</li><li>再上电查显示</li><li>最后查无线</li></ul></div>
+    <div class="notes">
+      <p><b>① 通电前（万用表通断档，断电状态）</b></p>
+      <table>
+        <tr><th>检查</th><th>期望</th></tr>
+        <tr><td>屏 VCC ↔ 主板 3V3</td><td>通；且 <b>不</b>与 5V 相通</td></tr>
+        <tr><td>灯环 VCC ↔ MT3608 IN+</td><td>通（开关后的 3.7V，不是 TP4056 OUT+）</td></tr>
+        <tr><td>灯环 GND ↔ 主板 GND</td><td>通（共地）</td></tr>
+        <tr><td>电容长脚 ↔ 灯环 VCC</td><td>通（长脚=正极朝 VCC）</td></tr>
+        <tr><td>任意 VCC ↔ 任意 GND</td><td><b>不通</b>（通=短路，排查）</td></tr>
+        <tr><td>MT3608 OUT+ 电压</td><td>单独通电拧到 <b>5.0V</b> 再接主板</td></tr>
+      </table>
+      <p><b>② 通电后（先电池供电）</b></p>
+      <table>
+        <tr><th>检查</th><th>期望</th></tr>
+        <tr><td>屏点亮</td><td>显示 HUD（标题/额度条/footer）</td></tr>
+        <tr><td>开关断开</td><td>屏 + 灯环<b>一起灭</b>（不灭=灯环接错到开关前）</td></tr>
+        <tr><td>灯环</td><td>空闲=绿色弧；推 state 测试=黄/红变化</td></tr>
+      </table>
+      <p><b>③ 无线</b></p>
+      <table>
+        <tr><th>检查</th><th>期望</th></tr>
+        <tr><td>BLE 推额度</td><td>屏数字更新、右上点变绿</td></tr>
+        <tr><td><code>ping cc-hud.local</code></td><td>通（WiFi 已连）</td></tr>
+        <tr><td>手机开 <code>cc-hud.local</code></td><td>看到实时面板 + 翻页/调暗按钮</td></tr>
+      </table>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>断电先查「该通的通、该断的断、5V 调好」，上电查「屏亮 + 开关能关灯环」，最后查「BLE/WiFi 通」。</div>
+  </div>
+
+  <!-- ============================ 10 ============================ -->
+  <h2 id="trouble"><span class="num">10</span>排障（实战汇总）</h2>
+  <div class="cornell">
+    <div class="cue"><h4>线索</h4><p class="q">不亮 / 不显示 / 不更新？</p><ul><li>电池正常但 USB 不显示</li><li>灯不亮的 4 个原因</li><li>屏没新数据</li></ul></div>
+    <div class="notes">
+      <table>
+        <tr><th>症状</th><th>原因</th><th>解决</th></tr>
+        <tr><td>USB-C 供电屏亮但<b>不显示</b>，电池供电正常</td><td>USB CDC 枚举干扰屏初始化时序</td><td>刷本指南固件（displayInit 已前移）；或先用纯充电头（不走数据）</td></tr>
+        <tr><td>USB-C 插电脑<b>识别不到串口</b></td><td>线是充电线 / 没进下载模式</td><td>换数据线；按住 GPIO0 再点 RST 进下载模式</td></tr>
+        <tr><td><b>灯完全不亮</b></td><td>① DIN 接到的不是 GPIO5（丝印 D5≠GPIO5，应接 D2）<br>② 电容接反击穿，把 VCC 拉到 ~0.6V<br>③ 没共地<br>④ 3.7V 太低</td><td>① 改接丝印 D2<br>② 拆掉/换电容，长脚+朝 VCC<br>③ 灯环 GND 与主板 GND 直连<br>④ 给电池充电</td></tr>
+        <tr><td><b>只亮约 1/3 的灯</b></td><td>固件灯数配成 8，实际 24</td><td>用本指南固件（已配 24）</td></tr>
+        <tr><td>彗星<b>转太快</b></td><td>步进太短</td><td>本指南固件已调到 ~2s/圈</td></tr>
+        <tr><td>屏显示但<b>额度不更新</b></td><td>Claude Code 暂未下发 <code>rate_limits</code>（新会话/长时间没调 API）</td><td>正常现象；真正交互产生用量后 30s 内自动更新</td></tr>
+        <tr><td>电池电量<b>不显示</b></td><td>分压电阻没接（显示「无传感器」）</td><td>接 2× 2.2kΩ 分压到 GPIO1（D 节）</td></tr>
+        <tr><td>电容<b>鼓包/发烫</b></td><td>电解电容接反</td><td>立即断电，换新电容，长脚+朝 VCC</td></tr>
+      </table>
+    </div>
+    <div class="sumbar">📌 <b>一句话总结：</b>USB 黑屏=CDC 时序、灯不亮先查 D2/电容极性/共地、额度不更新多是 Claude 还没下发数据。</div>
+  </div>
+
+  <p class="muted small" style="margin-top:50px;text-align:center">AI 状态灯 · 完整制作指南 · 基于 cc_hud 固件（含 WiFi 网页面板 / 4 屏轮播 / 燃烧预测 / 夜间调暗 / 电池 / 按钮）</p>
+
+</div>
+</body>
+</html>

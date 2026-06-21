@@ -41,6 +41,17 @@ struct QuotaSnapshot {
     uint32_t cost_micro_usd = 0;  // 1_000_000 = $1.00
     uint32_t duration_s     = 0;  // session duration in seconds
 
+    // Context-window usage of the active Claude Code session, 0..100 (%).
+    // Pushed in v5 payloads; 0 means "unknown / not reported" and the UI
+    // simply omits it. Session-scoped, so it is NOT persisted to NVS.
+    uint8_t  ctx_pct        = 0;
+
+    // Session line counters from the Claude Code statusline cost block,
+    // pushed in v6 payloads. Feed the session-stats screen. Like ctx_pct
+    // these are session-scoped and NOT persisted to NVS.
+    uint32_t lines_added    = 0;
+    uint32_t lines_removed  = 0;
+
     // Idle-mode time + status fields (set by v4 BLE writes).
     uint32_t unix_ts        = 0;        // host-supplied UTC Unix time
     int16_t  utc_offset_min = 0;        // local timezone offset from UTC

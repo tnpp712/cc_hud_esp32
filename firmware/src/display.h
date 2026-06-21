@@ -12,6 +12,10 @@ namespace cc_hud {
 // clock). Must be called once during setup() before lvglUiInit().
 void displayInit();
 
+// Set backlight brightness 0..100 (%) via LEDC PWM. Used for night
+// auto-dim. 100 = full, 0 = off.
+void displaySetBacklight(uint8_t pct);
+
 // Mark OTA mode active and paint the initial full-screen OTA frame. While
 // OTA is in progress the main loop stops ticking LVGL so the OTA screen
 // isn't overwritten. The device reboots on OTA end, so there's no explicit

@@ -25,6 +25,63 @@ constexpr uint8_t kPinLcdRst  = 17;  // D8
 constexpr uint8_t kPinLcdBl   = 18;  // D9
 
 // ---------------------------------------------------------------------------
+// WS2812B status LED ring (8 pixels), powered from the 3.7V lithium
+// directly (before boost), DIN -> GPIO via 470Ω, with a 470µF cap across
+// VCC/GND. Common-ground with the ESP32.
+//
+// kPinLedRing must be the *GPIO number*, not the silkscreen "Dx" label.
+// On the genuine Arduino Nano ESP32 mapping, silk "D5" = GPIO8; on some
+// cheap clones silk "D5" = GPIO5. If the ring doesn't light up after a
+// fresh OTA, swap this between 5 and 8 to match your board.
+// ---------------------------------------------------------------------------
+constexpr uint8_t  kPinLedRing        = 5;   // silk "D2" on Arduino Nano ESP32 standard mapping
+
+// ---------------------------------------------------------------------------
+// Optional add-on hardware (firmware ships ready; safe when unwired).
+//
+// Battery voltage sense (GPIO1 = ADC1_CH0). Wire a 2:1 divider:
+//   BAT+ ── 100kΩ ──┬── GPIO1
+//                   └── 100kΩ ── GND
+// So the ADC sees half the battery voltage (4.2V → 2.1V, within range).
+// When the pin is left floating (not yet wired) the reading is implausible
+// and the firmware treats it as "no battery sensor" — no false warnings.
+//
+// Push button (GPIO2 → button → GND). Uses the internal pull-up, so an
+// unwired pin reads HIGH (released). Short press = manual page advance,
+// long press = toggle manual dim.
+// ---------------------------------------------------------------------------
+constexpr uint8_t  kPinBatterySense   = 1;    // ADC1_CH0
+constexpr uint8_t  kPinButton         = 2;
+constexpr uint16_t kBatDividerRatioX10 = 20;  // 2.0× (×10 to stay integer)
+constexpr uint16_t kBatFullMv         = 4200; // Li-ion 100%
+constexpr uint16_t kBatEmptyMv        = 3000; // Li-ion 0%
+constexpr uint16_t kBatLowMv          = 3450; // low-battery warning threshold
+constexpr uint16_t kBatPlausibleMinMv = 2500; // below → assume no sensor wired
+constexpr uint16_t kBatPlausibleMaxMv = 4500; // above → assume no sensor wired
+constexpr uint32_t kButtonLongPressMs = 800;  // ≥ this = long press
+constexpr uint32_t kButtonDebounceMs  = 30;
+constexpr uint16_t kLedRingCount      = 24;   // WS2812B 24-position ring (per BOM)
+// Brightness 0..255. 24 LEDs lit together (gauge / red full-ring) get glary
+// fast, so keep this low. Day ~16, night dims to kLedRingBrightnessNight.
+constexpr uint8_t  kLedRingBrightness      = 10;  // daytime
+constexpr uint8_t  kLedRingBrightnessNight = 3;   // 23:00–07:00 auto-dim
+constexpr uint32_t kLedChaseStepMs    = 90;   // 90ms × 24 ≈ 2.2s rotation (calm)
+constexpr uint8_t  kLedCometLen       = 7;    // lit pixels in the comet tail (of 24)
+constexpr uint32_t kLedBlinkHalfMs    = 500;  // 500ms on / 500ms off
+
+// ---------------------------------------------------------------------------
+// Firmware identity + NTP time. kFirmwareVersion is shown on the web
+// dashboard for support. NTP auto-syncs the clock whenever WiFi is up, so
+// the clock survives a power loss without a manual BLE re-calibration.
+// kDefaultTzMin is the timezone used until a BLE idle-push provides one
+// (480 = UTC+8, China). NVS-persisted tz overrides it.
+// ---------------------------------------------------------------------------
+constexpr const char* kFirmwareVersion = "2026.06.21";
+constexpr int16_t     kDefaultTzMin    = 480;   // UTC+8
+constexpr const char* kNtpServer1      = "ntp.aliyun.com";
+constexpr const char* kNtpServer2      = "pool.ntp.org";
+
+// ---------------------------------------------------------------------------
 // BLE protocol identifiers. Service and characteristic UUIDs must match the
 // host-side bridge exactly.
 // ---------------------------------------------------------------------------
@@ -44,14 +101,26 @@ constexpr const char* kBleStateCharUuid     = "12345678-aaaa-bbbb-cccc-123456789
 //     and a free-form status string. The firmware keeps the clock alive
 //     between pushes via millis(), and auto-switches to the idle display
 //     after ~30 minutes without a v1/v2/v3 quota write.
+//   v5 (0x08, 28+title_len bytes): v3 layout + a 1-byte context-window
+//     usage percent (0..100) inserted right before title_len. Lets the HUD
+//     show how full the active session's context is. Fully backward
+//     compatible — the firmware still accepts v1..v4.
+//   v6 (0x0A, 36+title_len bytes): v5 layout + two u32 LE line counters
+//     (lines_added, lines_removed) inserted right after ctx_pct, before
+//     title_len. Feeds the session-stats screen (stage 2). Fully backward
+//     compatible — the firmware still accepts v1..v5.
 constexpr size_t  kQuotaPayloadLenV1     = 9;
 constexpr size_t  kQuotaPayloadLenV2     = 17;
 constexpr size_t  kQuotaPayloadLenV3Base = 27;   // mandatory fields before title
 constexpr size_t  kQuotaPayloadLenV4Base = 8;    // mandatory fields before idle_status
+constexpr size_t  kQuotaPayloadLenV5Base = 28;   // v3 base + 1 ctx_pct byte
+constexpr size_t  kQuotaPayloadLenV6Base = 36;   // v5 base + 2× u32 line counters
 constexpr uint8_t kQuotaMsgTypeV1        = 0x01;
 constexpr uint8_t kQuotaMsgTypeV2        = 0x02;
 constexpr uint8_t kQuotaMsgTypeV3        = 0x03;
 constexpr uint8_t kQuotaMsgTypeV4        = 0x04;
+constexpr uint8_t kQuotaMsgTypeV5        = 0x08;
+constexpr uint8_t kQuotaMsgTypeV6        = 0x0A;
 // Out-of-band control message: 1 byte msg_type 0x05 + 1 byte command.
 // cmd 0x00 = leave forced idle, cmd 0x01 = enter forced idle.
 constexpr uint8_t kQuotaMsgTypeForceIdle = 0x05;
@@ -60,11 +129,27 @@ constexpr uint8_t kQuotaMsgTypeForceIdle = 0x05;
 // (0..4 → PetMood). 0xFF = release force, fall back to auto.
 constexpr uint8_t kQuotaMsgTypeForceMood = 0x06;
 
+// WiFi credentials push (msg_type 0x09, ≥3 bytes):
+//   offset 0: u8 msg_type = 0x09
+//   offset 1: u8 ssid_len (1..32)
+//   offset 2..1+ssid_len: ssid bytes
+//   offset 2+ssid_len:    u8 pwd_len (0..63; 0 = open network)
+//   offset 3+ssid_len..:  pwd bytes
+// Pushed once via BLE to provision the device for WiFi OTA. Stored in NVS.
+constexpr uint8_t kQuotaMsgTypeWifi      = 0x09;
+constexpr size_t  kWifiSsidMaxLen        = 32;
+constexpr size_t  kWifiPwdMaxLen         = 63;
+
 // App-state push (msg_type 0x07, ≥3 bytes):
 //   offset 0: u8 msg_type = 0x07
 //   offset 1: u8 state (see AppState below)
 //   offset 2: u8 detail_len (0..15)
-//   offset 3+: ASCII detail (tool name when state == kAppStateTool)
+//   offset 3..2+detail_len: ASCII detail (tool name when state == Tool)
+//   offset 3+detail_len:   u8 total_sessions (OPTIONAL, stage 3)
+//   offset 4+detail_len:   u8 busy_sessions  (OPTIONAL, stage 3)
+// The two session-count bytes are optional for backward compatibility:
+// a host that only sends the first 3+detail_len bytes still parses. Both
+// default to 0 ("unknown / single session") when absent.
 // Pushed by Claude Code hooks via host wrapper. Each push completely
 // replaces the previous app state.
 constexpr uint8_t kQuotaMsgTypeState     = 0x07;
@@ -75,6 +160,7 @@ enum AppState : int8_t {
     kAppStateThinking = 1,  // UserPromptSubmit / PostToolUse
     kAppStateTool     = 2,  // PreToolUse — detail = tool name
     kAppStateWaiting  = 3,  // Notification — waiting on permission / no resp
+    kAppStateDone     = 4,  // one-shot "turn finished" → green done-pulse, else idle
     kAppStateUnset    = -1, // boot-time sentinel
 };
 
@@ -92,8 +178,28 @@ enum PetMood : int8_t {
 constexpr int8_t kPetMoodCount = 5;
 
 // Idle-mode trigger: switch to the clock screen after this many ms of
-// no v1/v2/v3 quota write. 30 minutes.
-constexpr uint32_t kIdleThresholdMs = 30UL * 60UL * 1000UL;
+// no v1/v2/v3 quota write. 8 hours — long enough that normal "coffee
+// break" pauses in a Claude Code session don't yank the HUD to the
+// clock screen. Force-idle (msg 0x05 cmd 1) still switches immediately.
+constexpr uint32_t kIdleThresholdMs = 8UL * 60UL * 60UL * 1000UL;
+
+// Page carousel + activity-lock state machine (stage 2/3). When Claude is
+// idle (app_state idle, not AFK) the HUD auto-rotates between the quota
+// page and the session-stats page every kCarouselMs. When Claude is busy
+// (tool/thinking/waiting) the UI locks to the activity (tool) page; to
+// avoid flicker from sub-second tool↔thinking↔idle churn, the lock sticks
+// for kBusyStickMs after the last busy signal before falling back to the
+// carousel.
+constexpr uint32_t kCarouselMs  = 6000;   // 6 s per page in idle rotation
+constexpr uint32_t kBusyStickMs = 3500;   // hold the tool page 3.5 s post-busy
+
+// Power saver: after this long with no Claude activity (app_state idle),
+// dim the panel + LED ring just like night mode. Any activity restores
+// full brightness instantly. Saves power + glare during long idle stretches.
+constexpr uint32_t kIdleDimMs   = 180000;  // 3 min  → dim panel + LED
+constexpr uint32_t kLedOffMs    = 600000;  // 10 min → extinguish the LED ring
+// (saves the ~20mA WS2812B quiescent during long idle; restored on activity).
+// WiFi stays ON — power-source auto-detect isn't reliable on this board's USB.
 
 // Idle status string max length (same envelope as title).
 constexpr size_t  kIdleStatusMaxLen = 32;

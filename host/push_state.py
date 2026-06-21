@@ -32,27 +32,41 @@ STATE_MAP = {
     "thinking": 1,
     "tool":     2,
     "waiting":  3,
+    "done":     4,   # one-shot → green done-pulse on the ring, then idle
 }
 
 
-def pack_state(state: str, detail: str) -> bytes:
+def pack_state(state: str, detail: str,
+               total_sessions: int = 0, busy_sessions: int = 0) -> bytes:
     s = STATE_MAP.get(state)
     if s is None:
         raise ValueError(f"unknown state {state!r}, expected one of "
                          f"{list(STATE_MAP)}")
     d = detail.encode("ascii", errors="replace")[:DETAIL_MAX]
-    return struct.pack("<BBB", MSG_TYPE_STATE, s, len(d)) + d
+    base = struct.pack("<BBB", MSG_TYPE_STATE, s, len(d)) + d
+    # Optional stage-3 session-count bytes. The firmware reads them only
+    # when present, so older firmware ignores them harmlessly.
+    base += struct.pack("<BB", min(255, max(0, total_sessions)),
+                        min(255, max(0, busy_sessions)))
+    return base
 
 
-async def run(address: str, state: str, detail: str, timeout: float) -> int:
-    payload = pack_state(state, detail)
-    try:
-        async with BleakClient(address, timeout=timeout) as c:
-            await c.write_gatt_char(QUOTA_CHAR, payload, response=True)
-    except Exception as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 2
-    return 0
+async def run(address: str, state: str, detail: str, timeout: float,
+              total_sessions: int = 0, busy_sessions: int = 0) -> int:
+    payload = pack_state(state, detail, total_sessions, busy_sessions)
+    # Retry once on a transient BLE disconnect — CoreBluetooth drops the
+    # link intermittently under lock contention with the other pushers.
+    last_err = None
+    for _ in range(2):
+        try:
+            async with BleakClient(address, timeout=timeout) as c:
+                await c.write_gatt_char(QUOTA_CHAR, payload, response=True)
+            return 0
+        except Exception as exc:
+            last_err = exc
+            await asyncio.sleep(0.4)
+    print(f"ERROR: {last_err}", file=sys.stderr)
+    return 2
 
 
 def main() -> None:
@@ -63,11 +77,18 @@ def main() -> None:
     p.add_argument("--state", required=True, choices=list(STATE_MAP))
     p.add_argument("--detail", default="",
                    help="ASCII tool name when --state=tool (≤15 chars)")
+    p.add_argument("--total-sessions", dest="total_sessions",
+                   type=int, default=0,
+                   help="Live Claude Code session count (stage 3)")
+    p.add_argument("--busy-sessions", dest="busy_sessions",
+                   type=int, default=0,
+                   help="How many sessions are non-idle (stage 3)")
     p.add_argument("--timeout", type=float, default=5.0)
     args = p.parse_args()
     try:
         sys.exit(asyncio.run(run(args.address, args.state,
-                                  args.detail, args.timeout)))
+                                  args.detail, args.timeout,
+                                  args.total_sessions, args.busy_sessions)))
     except KeyboardInterrupt:
         sys.exit(130)
 

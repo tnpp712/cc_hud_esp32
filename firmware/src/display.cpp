@@ -54,10 +54,29 @@ void printAt(const char* s,
 
 }  // namespace
 
+// Backlight PWM (night auto-dim). LEDC channel on kPinLcdBl. 12-bit so the
+// low end stays smooth.
+namespace {
+constexpr uint8_t  kBlPwmChannel = 6;     // LEDC channel (NeoPixel uses RMT, not LEDC)
+constexpr uint8_t  kBlPwmBits    = 12;
+constexpr uint32_t kBlPwmFreq    = 5000;
+constexpr uint32_t kBlPwmMax     = (1u << kBlPwmBits) - 1u;
+uint8_t g_bl_pct = 100;
+}  // namespace
+
 // =========================================================== public API ===
+void displaySetBacklight(uint8_t pct) {
+    if (pct > 100) pct = 100;
+    g_bl_pct = pct;
+    const uint32_t duty = (kBlPwmMax * pct) / 100u;
+    ledcWrite(kBlPwmChannel, duty);
+}
+
 void displayInit() {
-    pinMode(kPinLcdBl, OUTPUT);
-    digitalWrite(kPinLcdBl, HIGH);
+    // Backlight via LEDC PWM so we can dim at night (Arduino-ESP32 2.x API).
+    ledcSetup(kBlPwmChannel, kBlPwmFreq, kBlPwmBits);
+    ledcAttachPin(kPinLcdBl, kBlPwmChannel);
+    displaySetBacklight(100);
 
     // SCK, MISO (unused), MOSI, CS — explicit to leave nothing to library default.
     g_spi.begin(kPinLcdSclk, /*MISO=*/-1, kPinLcdMosi, kPinLcdCs);
