@@ -17,6 +17,40 @@ streams in over BLE — the device reboots into the new image on completion.*
 
 ---
 
+## 🔱 本 Fork 新增功能（this fork）
+
+> 这是 [`uk0/cc_hud_esp32`](https://github.com/uk0/cc_hud_esp32) 的私有 fork，在原版"BLE 推额度 + LCD HUD"基础上做了大量产品级增强。完整图文制作指南见 **[`docs/build-guide.html`](docs/build-guide.html)**（康奈尔笔记 + 分镜，浏览器直接打开）。
+
+**显示 / UI**
+- **4 屏轮播状态机**：额度页 / 统计页（成本·时长·增删行·5H 重置倒计时）/ 工具页（大图标 + N 会话·M 忙）/ 时钟页；空闲自动轮播、干活锁工具页、防抖
+- **燃烧率耗尽预测**：按当前用速预测"X 窗口会在重置前耗尽" → footer 红字预警
+- 更大字号 HUD + CJK 中文天气
+
+**24 灯环状态灯（WS2812B，新增 `led_ring.*`）**
+- 空闲=绿色**额度表**（点亮颗数=额度%、分级变色）/ 工作=黄色**彗星** / 等权限=红色**整环闪** / 低电=橙色慢闪
+- **Codex 完成绿脉冲**：AI 答完一轮闪三下（见多 AI 工具）
+
+**无线 / OTA / 网页（新增 `wifi_ota.*`）**
+- **WiFi OTA**：`cc-hud.local` 局域网秒级刷机（BLE OTA 仍保留作救砖）
+- **网页面板** `http://cc-hud.local/`：实时额度/成本/状态/电量，**亮度滑块（存 NVS 免重刷）**、翻页/调暗遥控、固件版本/运行时长/内存
+- **NTP 自动校时**：WiFi 在线自动授时，**断电后免手动校准**
+
+**智能 / 省电**
+- 夜间(23:00–07:00)+ 长空闲自动调暗、10 分钟熄灯环
+- 修复 USB-CDC-on-boot 导致的插电脑黑屏（`displayInit` 前移）
+
+**多 AI 工具支持（新增）**
+- **Codex CLI**：`~/.codex/config.toml` 的 `notify` → 适配器，答完一轮触发灯环绿脉冲；链式调度器保留已有 notify（如 computer-use）
+- 任意工具调 `push_state.py` 即可推状态；多工具/多会话**统一聚合**（有人忙就显示忙）
+
+**可选硬件（接上即生效，不接不误报）**
+- 电池电量监测（2×2.2kΩ 分压 → 丝印 A0）+ 低电告警；实体按钮（→ 丝印 A1）翻页/调暗
+
+**新增协议**：quota v5(0x08 +ctx%) / v6(0x0A +增删行)、0x09 WiFi 凭证、state 0x04 完成脉冲 + 多会话计数字节
+**新增 host 脚本**：`push_wifi.py`、`cchud-codex-notify.sh`、`cchud-codex-dispatch.sh`
+
+---
+
 ## Project at a glance
 
 | Layer | What |
