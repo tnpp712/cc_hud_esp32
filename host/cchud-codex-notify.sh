@@ -17,7 +17,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PY="$HERE/.venv/bin/python"
 PUSH="$HERE/push_state.py"
-ADDR="${CCHUD_ADDR:-03265204-7126-B6FE-6F17-6E9621CEA97F}"
+ADDR="${CCHUD_ADDR:-EC875770-C5EA-539F-2A65-EAF348861E29}"
 TIMEOUT="${CCHUD_STATE_TIMEOUT:-6}"
 BLE_LOCK="/tmp/cchud/ble.lock"
 mkdir -p /tmp/cchud 2>/dev/null || true

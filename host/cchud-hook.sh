@@ -76,7 +76,7 @@ printf '%s\t%s' "$STATE" "$DETAIL" > "$SESS_DIR/$SID.state"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="$PROJECT_ROOT/host/.venv/bin/python"
 PUSH="$PROJECT_ROOT/host/push_state.py"
-ADDR="${CCHUD_ADDR:-03265204-7126-B6FE-6F17-6E9621CEA97F}"
+ADDR="${CCHUD_ADDR:-EC875770-C5EA-539F-2A65-EAF348861E29}"
 
 if [ ! -x "$PY" ] || [ ! -f "$PUSH" ]; then
     echo "$(date +%H:%M:%S) cchud-hook: missing $PY or $PUSH" >>"$LOG"
@@ -115,12 +115,20 @@ aggregate() {
 }
 
 # Fire the BLE push in the background so the hook returns immediately.
-# Only the lock holder pushes; others rely on the holder re-aggregating
-# (the push-until-stable loop) to pick up their just-written state.
 (
-    if ! mkdir "$BLE_LOCK" 2>/dev/null; then
-        exit 0   # someone is pushing; their re-aggregation will see our file
-    fi
+    # Spin-wait briefly for the shared BLE lock. State changes must feel
+    # responsive, but the quota pusher (cchud-update.sh) holds this SAME
+    # lock for a BLE write and never re-pushes our state — so if we just
+    # bailed on contention, a new state (e.g. idle→tool) would sit unpushed
+    # until the next state hook won the lock, making the light lag. We run
+    # in the background, so waiting here never delays the hook's return.
+    # ~4s covers a typical quota BLE write (connect + 2x retry).
+    got=0
+    for _ in $(seq 1 40); do
+        if mkdir "$BLE_LOCK" 2>/dev/null; then got=1; break; fi
+        sleep 0.1
+    done
+    [ "$got" = 1 ] || exit 0
     trap 'rmdir "$BLE_LOCK" 2>/dev/null' EXIT INT TERM
 
     # Push until the aggregate stops changing (catches states that landed

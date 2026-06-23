@@ -13,7 +13,7 @@ JSON="${1:-}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 1. Preserve the original computer-use notify (same call Codex used to make).
-ORIG="/Users/jin/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient"
+ORIG="/Users/yaoying/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient"
 if [ -x "$ORIG" ]; then
     "$ORIG" "turn-ended" "$JSON" >/dev/null 2>&1 &
 fi
