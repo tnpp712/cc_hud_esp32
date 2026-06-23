@@ -123,9 +123,13 @@ void onQuotaWrite(const QuotaSnapshot& parsed) {
     g_quota          = next;
     g_redraw_pending = true;
     if (need_flash) g_alert_pending = true;
-    // Any v1/v2/v3 quota push counts as "Claude is doing something".
-    // Refresh the thinking-star window for kThinkingHoldMs from now.
-    g_thinking_until_ms = millis() + kThinkingHoldMs;
+    // NOTE: deliberately do NOT touch g_thinking_until_ms here. The app-state
+    // (idle/thinking/tool) is driven solely by explicit state pushes
+    // (msg_type 0x07) from the hooks. Coupling it to quota writes made the
+    // statusline's ~30s quota cadence perpetually re-arm a 90s "thinking"
+    // window, so the device looked stuck "thinking" forever once any quota
+    // arrived (the legacy fallback below only fires while no 0x07 has ever
+    // been seen — e.g. right after boot — but the quota cadence kept it lit).
     portEXIT_CRITICAL(&g_lock);
 
     if (persistenceSave(next)) {
