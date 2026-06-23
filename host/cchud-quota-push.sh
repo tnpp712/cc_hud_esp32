@@ -79,6 +79,26 @@ fi
 reset_5h=0; [ "$abs5" -gt "$NOW" ] 2>/dev/null && reset_5h=$(( abs5 - NOW ))
 reset_7d=0; [ "$abs7" -gt "$NOW" ] 2>/dev/null && reset_7d=$(( abs7 - NOW ))
 
+# ── HUD 标题:模型名 + 上下文窗口,对齐桌面/旧硬件(如 "Opus 4.8 (1M context)")。
+# 用户显式设了 CCHUD_TITLE 则尊重覆盖;否则从 statusline JSON 拼。注意用 IFS=tab
+# 读取,否则 "Opus 4.8" 里的空格会被默认 IFS 拆开。
+if [ -z "${CCHUD_TITLE:-}" ]; then
+    IFS=$'\t' read -r model_name ctx_size <<EOF
+$(printf '%s' "$JSON" | jq -r '[(.model.display_name // ""), (.context_window.context_window_size // 0)] | @tsv' 2>/dev/null)
+EOF
+    case "$ctx_size" in ''|*[!0-9]*) ctx_size=0;; esac
+    ctx_txt=""
+    if   [ "$ctx_size" -ge 1000000 ]; then ctx_txt="$(( ctx_size / 1000000 ))M"
+    elif [ "$ctx_size" -ge 1000 ];    then ctx_txt="$(( ctx_size / 1000 ))K"
+    fi
+    if   [ -n "$model_name" ] && [ -n "$ctx_txt" ]; then
+        export CCHUD_TITLE="$model_name ($ctx_txt context)"
+    elif [ -n "$model_name" ]; then
+        export CCHUD_TITLE="$model_name"
+    fi
+    # model_name 为空时不设 CCHUD_TITLE → cchud-update.sh 回退默认 "CC HUD"
+fi
+
 export CCHUD_MODE="sub"
 export CCHUD_CTX_PCT="$ctx_pct"
 export CCHUD_COST_USD="$cost_usd"
