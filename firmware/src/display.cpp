@@ -74,9 +74,12 @@ void displaySetBacklight(uint8_t pct) {
 
 void displayInit() {
     // Backlight via LEDC PWM so we can dim at night (Arduino-ESP32 2.x API).
+    // Configure the channel but keep it DARK (duty 0 after attach) until the
+    // panel is initialised and cleared — otherwise the backlight lights up the
+    // uninitialised panel RAM / previous frame during SPI+panel init, which
+    // reads as a boot "flash". We illuminate only after fillScreen() below.
     ledcSetup(kBlPwmChannel, kBlPwmFreq, kBlPwmBits);
     ledcAttachPin(kPinLcdBl, kBlPwmChannel);
-    displaySetBacklight(100);
 
     // SCK, MISO (unused), MOSI, CS — explicit to leave nothing to library default.
     g_spi.begin(kPinLcdSclk, /*MISO=*/-1, kPinLcdMosi, kPinLcdCs);
@@ -85,6 +88,10 @@ void displayInit() {
     g_tft.setSPISpeed(40 * 1000 * 1000);  // 40 MHz — verified on this wiring
     g_tft.setRotation(0);
     g_tft.fillScreen(kColorBg);
+
+    // Panel is now cleared to the background — safe to turn the backlight on
+    // without showing boot garbage.
+    displaySetBacklight(100);
 }
 
 // ============================================================ OTA mode ===

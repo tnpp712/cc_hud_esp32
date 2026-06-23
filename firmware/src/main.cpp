@@ -281,7 +281,15 @@ void setup() {
     cc_hud::buttonInit();
 
     Serial.begin(115200);
-    delay(2500);  // give USB CDC time to enumerate after reset
+    // Only pause for USB-CDC enumeration if a host is actually attaching, so
+    // early boot logs aren't lost when debugging over USB. `Serial` turns
+    // truthy once the host asserts the CDC line, so we break out the instant
+    // it's ready. On battery/charger no host ever attaches, so this falls
+    // through after a short cap instead of the old fixed 2.5s stall — boot
+    // feels instant off-USB. (Capped so a flaky CDC line can't hang startup.)
+    for (uint32_t t0 = millis(); !Serial && (millis() - t0) < 600u; ) {
+        delay(10);
+    }
     Serial.println();
     Serial.println("[BOOT] cc_hud v1");
     Serial.println("[TFT] init done (pre-CDC)");
@@ -488,12 +496,20 @@ void loop() {
         // Power saver: track how long since any Claude activity. Any activity
         // restores everything AND clears the manual override (back to auto).
         static uint32_t s_last_active = 0;
-        if (m.app_state == cc_hud::kAppStateTool ||
-            m.app_state == cc_hud::kAppStateThinking ||
-            m.app_state == cc_hud::kAppStateWaiting) {
+        static bool     s_was_active  = false;
+        const bool active_now = (m.app_state == cc_hud::kAppStateTool ||
+                                 m.app_state == cc_hud::kAppStateThinking ||
+                                 m.app_state == cc_hud::kAppStateWaiting);
+        if (active_now) {
             s_last_active = static_cast<uint32_t>(now_ms);
-            s_manual = -1;   // activity resumes → back to auto dim
+            // Clear the manual override only on the idle→active EDGE, not on
+            // every tick. Resetting every loop while Claude keeps working wiped
+            // a long-press dim on the very next iteration, so you could never
+            // dim the screen while active. Edge-only keeps "auto-brighten when
+            // work resumes" while letting a manual dim stick during work.
+            if (!s_was_active) s_manual = -1;
         }
+        s_was_active = active_now;
         const uint32_t idle_for =
             static_cast<uint32_t>(now_ms) - s_last_active;
         const bool long_idle = idle_for > cc_hud::kIdleDimMs;   // 3 min → dim

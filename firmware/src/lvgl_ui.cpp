@@ -908,6 +908,11 @@ void lvglUiInit() {
     lv_display_set_buffers(disp, g_buf_a, g_buf_b, sizeof(g_buf_a),
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
 
+    // LVGL auto-creates a default active screen using the light default theme
+    // (white background). Force it black up front so no white frame can flash
+    // before our (black) screens load or during the first transition.
+    lv_obj_set_style_bg_color(lv_screen_active(), lv_color_black(), 0);
+
     initImageDsc(g_logo_dsc, kLogo, kLogoW, kLogoH);
     for (int i = 0; i < kIconCount; ++i) {
         initImageDsc(g_icon_dsc[i], kIcons[i], kIconW, kIconH);
