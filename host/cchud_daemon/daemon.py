@@ -3,7 +3,7 @@ import asyncio
 import time
 from .aggregator import Aggregator
 from .ble_link import BleLink
-from .codec import (encode_state_0x07, encode_v7_state, encode_quota_v6, encode_v7,
+from .codec import (encode_state_0x07, encode_v7_state, encode_quota_v6, encode_v7, KIND_CODE,
                     tlv_u8, tlv_u32, tlv_str, TAG_FIVE_H_USED_PCT,
                     TAG_FIVE_H_RESET_IN_S, TAG_SEVEN_D_USED_PCT,
                     TAG_SEVEN_D_RESET_IN_S, TAG_CONTEXT_USED_PCT,
@@ -48,12 +48,20 @@ class Daemon:
         """state 事件 → SessionStore.update → Aggregator 聚合,变更则推送 0x07。"""
         now = self._now()
         self._store.update(e.session_id, e.state or "idle", e.detail or "", now,
-                           kind=e.intervention_kind or "none")
+                           kind=e.intervention_kind or "none",
+                           client_id=e.client_id)
         state, detail, kind, total, busy = self._agg.aggregate(self._store, now)
-        if self._agg.changed((state, detail, kind, total, busy)):
+        # 第 4 层:会话列表(限前 6 条保证单包),已按优先级排序(等你的在前)
+        sessions = [
+            (cid, _STATE_CODE.get(st, 0), KIND_CODE.get(k, 0), (det or "")[:20])
+            for (cid, st, det, k) in self._store.session_list(now)[:6]
+        ]
+        key = (state, detail, kind, total, busy, tuple(sessions))
+        if self._agg.changed(key):
             code = _STATE_CODE.get(state, 0)
             if getattr(self._ble, "use_v7", False):
-                payload = encode_v7_state(code, detail, total, busy, kind)
+                payload = encode_v7_state(code, detail, total, busy, kind,
+                                          sessions=sessions)
             else:
                 payload = encode_state_0x07(code, detail, total, busy)
             await self._ble.enqueue(payload)

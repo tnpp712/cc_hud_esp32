@@ -164,7 +164,7 @@ struct Applied {
     char     st_foot[64] = {0};
     bool     st_foot_red = false;
     int16_t  tool_slot = -99;    // 0..9 icon · 100 gif · 101 none · -99 uninit
-    char     tool_name[24] = {0}, tool_sess[24] = {0};
+    char     tool_name[24] = {0}, tool_sess[96] = {0};
 };
 Applied g_ap;
 
@@ -737,9 +737,35 @@ void applyTool(const LvglUiModel& m) {
         std::strcpy(g_ap.tool_name, name);
     }
 
-    // Session count line.
-    char sess[24] = "";
-    if (m.total_sessions > 1) {
+    // 会话列表(第 4 层):多会话时列出"客户端 状态"(前 3 条,已按优先级排序);
+    // 单会话/无列表时退回原计数行。
+    char sess[96] = "";
+    if (m.session_count >= 2) {
+        size_t off = 0;
+        uint8_t shown = m.session_count < 3 ? m.session_count : 3;
+        for (uint8_t i = 0; i < shown; i++) {
+            const char* cli;
+            switch (m.sessions[i].client_id) {
+                case 0:  cli = "Claude"; break;
+                case 1:  cli = "Codex";  break;
+                case 2:  cli = "Gemini"; break;
+                case 3:  cli = "Qwen";   break;
+                default: cli = "AI";     break;
+            }
+            const char* stt;
+            switch (m.sessions[i].state) {
+                case kAppStateThinking: stt = "think"; break;
+                case kAppStateTool:     stt = "tool";  break;
+                case kAppStateWaiting:
+                    stt = (m.sessions[i].kind == 2) ? "answer?"
+                        : (m.sessions[i].kind == 1) ? "approve?" : "wait";
+                    break;
+                default:                stt = "idle";  break;
+            }
+            off += snprintf(sess + off, sizeof(sess) - off,
+                            "%s%s %s", i ? "\n" : "", cli, stt);
+        }
+    } else if (m.total_sessions > 1) {
         snprintf(sess, sizeof(sess), "%u sessions  %u busy",
                  (unsigned)m.total_sessions, (unsigned)m.busy_sessions);
     } else if (m.total_sessions == 1) {

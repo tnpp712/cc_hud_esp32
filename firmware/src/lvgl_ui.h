@@ -15,6 +15,7 @@
 
 #include "config.h"
 #include "persistence.h"
+#include "v7_tlv.h"   // V7Session(第 4 层会话列表)
 
 namespace cc_hud {
 
@@ -27,6 +28,8 @@ struct LvglUiModel {
     uint8_t       total_sessions = 0;  // stage 3: live Claude Code sessions
     uint8_t       busy_sessions  = 0;  // stage 3: how many are non-idle
     uint8_t       app_intervention = 0;  // 介入类型(waiting 时):0=none 1=approval 2=question 3=error
+    uint8_t       session_count    = 0;          // 第 4 层:会话列表条数
+    V7Session     sessions[kMaxV7Sessions];      // 按优先级排序(等你的在前)
     // Burn-rate prediction (computed in main.cpp). When exhaust_warn is set,
     // the named window is projected to hit 100% BEFORE it resets.
     bool          exhaust_warn   = false;

@@ -45,6 +45,9 @@ volatile int8_t g_app_state = kAppStateUnset;
 char            g_app_state_detail[kAppStateDetailMaxLen + 1] = {0};
 // 介入类型(state=waiting 时):0=none 1=approval 2=question 3=error(第 3 层)
 volatile uint8_t g_app_intervention = 0;
+// 会话列表(第 4 层),由 v7 帧解析填充,按优先级排序(等你的在前)
+V7Session g_v7_sessions[kMaxV7Sessions];
+volatile uint8_t g_v7_session_count = 0;
 // Multi-session counts from the aggregating hook (stage 3). 0 = unknown.
 volatile uint8_t g_total_sessions = 0;
 volatile uint8_t g_busy_sessions  = 0;
@@ -192,7 +195,8 @@ void onIdleWrite(uint32_t unix_ts,
 // main loop's state tick to pick up.
 void onStateWrite(int8_t state, const char* detail,
                   uint8_t total_sessions, uint8_t busy_sessions,
-                  uint8_t intervention_kind) {
+                  uint8_t intervention_kind,
+                  const V7Session* sessions, uint8_t session_count) {
     // state 0x04 (done) is a one-shot "turn finished" signal: fire the green
     // done-pulse and settle to idle rather than persisting a "done" state.
     if (state == kAppStateDone) {
@@ -202,6 +206,10 @@ void onStateWrite(int8_t state, const char* detail,
     portENTER_CRITICAL(&g_lock);
     g_app_state = state;
     g_app_intervention = intervention_kind;
+    g_v7_session_count = session_count;
+    for (uint8_t i = 0; i < session_count && i < kMaxV7Sessions; i++) {
+        g_v7_sessions[i] = sessions[i];
+    }
     std::strncpy(g_app_state_detail, detail,
                  sizeof(g_app_state_detail) - 1);
     g_app_state_detail[sizeof(g_app_state_detail) - 1] = '\0';
@@ -376,6 +384,10 @@ void loop() {
     m.total_sessions = cc_hud::g_total_sessions;
     m.busy_sessions  = cc_hud::g_busy_sessions;
     m.app_intervention = cc_hud::g_app_intervention;
+    m.session_count = cc_hud::g_v7_session_count;
+    for (uint8_t i = 0; i < m.session_count && i < cc_hud::kMaxV7Sessions; i++) {
+        m.sessions[i] = cc_hud::g_v7_sessions[i];
+    }
     thinking_until = cc_hud::g_thinking_until_ms;
     force_mood     = cc_hud::g_force_mood;
     force_idle     = cc_hud::g_force_idle;
