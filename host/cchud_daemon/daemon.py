@@ -73,7 +73,7 @@ class Daemon:
                 tlv_u32(TAG_FIVE_H_RESET_IN_S, reset5),
                 tlv_u8(TAG_SEVEN_D_USED_PCT, used7),
                 tlv_u32(TAG_SEVEN_D_RESET_IN_S, reset7),
-                tlv_u8(TAG_CONTEXT_USED_PCT, e.ctx_pct or 0),
+                tlv_u8(TAG_CONTEXT_USED_PCT, max(0, min(100, e.ctx_pct or 0))),
                 tlv_u32(TAG_COST_MICRO_USD, cost_micro),
                 tlv_u32(TAG_DURATION_S, e.duration_s or 0),
                 tlv_u32(TAG_LINES_ADDED, e.lines_added or 0),
