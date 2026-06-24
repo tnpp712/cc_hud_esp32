@@ -13,6 +13,9 @@ _EVENT_STATE = {
     "Stop": "idle",
 }
 
+# 这些工具实为向用户提问(等回答),应映射为 waiting 而非普通工具运行
+_WAIT_TOOLS = {"AskUserQuestion"}
+
 
 def _fmt_ctx_size(n: int) -> str:
     if n >= 1_000_000:
@@ -35,12 +38,20 @@ class ClaudeAdapter:
         if event in _EVENT_STATE:
             state = _EVENT_STATE[event]
             detail = payload.get("tool_name", "") if state == "tool" else ""
+            kind = None
+            if state == "tool" and detail in _WAIT_TOOLS:
+                state, kind = "waiting", "question"   # AskUserQuestion 等用户回答
             out.append(CcHudEvent(self.client_id, sid, "state",
-                                  state=state, detail=detail))
+                                  state=state, detail=detail,
+                                  intervention_kind=kind))
         elif event == "Notification":
             msg = payload.get("message", "") or ""
-            state = "waiting" if any(h in msg for h in _PERMISSION_HINTS) else "idle"
-            out.append(CcHudEvent(self.client_id, sid, "state", state=state))
+            if any(h in msg for h in _PERMISSION_HINTS):
+                out.append(CcHudEvent(self.client_id, sid, "state",
+                                      state="waiting",
+                                      intervention_kind="approval"))
+            else:
+                out.append(CcHudEvent(self.client_id, sid, "state", state="idle"))
 
         if event == "Status":
             # statusLine 透传:payload 本身就是 statusline JSON

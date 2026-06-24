@@ -26,6 +26,7 @@ struct LvglUiModel {
     char          app_detail[kAppStateDetailMaxLen + 1] = {0};
     uint8_t       total_sessions = 0;  // stage 3: live Claude Code sessions
     uint8_t       busy_sessions  = 0;  // stage 3: how many are non-idle
+    uint8_t       app_intervention = 0;  // 介入类型(waiting 时):0=none 1=approval 2=question 3=error
     // Burn-rate prediction (computed in main.cpp). When exhaust_warn is set,
     // the named window is projected to hit 100% BEFORE it resets.
     bool          exhaust_warn   = false;

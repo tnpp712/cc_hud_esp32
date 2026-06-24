@@ -78,6 +78,9 @@ V7Result parseV7Tlv(const uint8_t* buf, size_t len, V7Fields& out) {
             case kV7TagBusySessions:
                 if (l >= 1) { out.has_busy = true; out.busy_sessions = v[0]; }
                 break;
+            case kV7TagInterventionKind:
+                if (l >= 1) { out.has_intervention = true; out.intervention_kind = v[0]; }
+                break;
             default:
                 // 未知 tag:跳过 value 区域,保证前向兼容
                 break;

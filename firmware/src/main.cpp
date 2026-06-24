@@ -43,6 +43,8 @@ constexpr uint32_t kThinkingHoldMs = 90UL * 1000UL;  // 90s window after any quo
 // App-state, pushed by Claude Code hooks via msg_type 0x07.
 volatile int8_t g_app_state = kAppStateUnset;
 char            g_app_state_detail[kAppStateDetailMaxLen + 1] = {0};
+// 介入类型(state=waiting 时):0=none 1=approval 2=question 3=error(第 3 层)
+volatile uint8_t g_app_intervention = 0;
 // Multi-session counts from the aggregating hook (stage 3). 0 = unknown.
 volatile uint8_t g_total_sessions = 0;
 volatile uint8_t g_busy_sessions  = 0;
@@ -189,7 +191,8 @@ void onIdleWrite(uint32_t unix_ts,
 // state == kAppStateTool, empty otherwise. We just stash it for the
 // main loop's state tick to pick up.
 void onStateWrite(int8_t state, const char* detail,
-                  uint8_t total_sessions, uint8_t busy_sessions) {
+                  uint8_t total_sessions, uint8_t busy_sessions,
+                  uint8_t intervention_kind) {
     // state 0x04 (done) is a one-shot "turn finished" signal: fire the green
     // done-pulse and settle to idle rather than persisting a "done" state.
     if (state == kAppStateDone) {
@@ -198,6 +201,7 @@ void onStateWrite(int8_t state, const char* detail,
     }
     portENTER_CRITICAL(&g_lock);
     g_app_state = state;
+    g_app_intervention = intervention_kind;
     std::strncpy(g_app_state_detail, detail,
                  sizeof(g_app_state_detail) - 1);
     g_app_state_detail[sizeof(g_app_state_detail) - 1] = '\0';
@@ -371,6 +375,7 @@ void loop() {
     m.app_detail[sizeof(m.app_detail) - 1] = '\0';
     m.total_sessions = cc_hud::g_total_sessions;
     m.busy_sessions  = cc_hud::g_busy_sessions;
+    m.app_intervention = cc_hud::g_app_intervention;
     thinking_until = cc_hud::g_thinking_until_ms;
     force_mood     = cc_hud::g_force_mood;
     force_idle     = cc_hud::g_force_idle;

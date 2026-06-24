@@ -17,11 +17,21 @@ TAG_AGG_STATE            = 0x20
 TAG_ACTIVE_TOOL_NAME     = 0x21
 TAG_TOTAL_SESSIONS       = 0x22
 TAG_BUSY_SESSIONS        = 0x23
+# 介入域(0x40-0x5F,第 3 层)
+TAG_INTERVENTION_KIND    = 0x40
+TAG_INTERVENTION_TOOL    = 0x41
+TAG_INTERVENTION_TEXT    = 0x42
+TAG_ALERT_CHANNELS       = 0x45
 TAG_UNIX_TS              = 0x80
 TAG_UTC_OFFSET_MIN       = 0x81
 TAG_STATUS_STRING        = 0x84
 
 MSG_V7_TLV = 0x0B
+
+# 状态码(与固件一致)
+STATE_CODE = {"idle": 0, "thinking": 1, "tool": 2, "waiting": 3, "done": 4}
+# 介入类型码
+KIND_CODE = {"none": 0, "approval": 1, "question": 2, "error": 3}
 
 
 def encode_quota_v6(*, mode, h5_used, h5_limit, d7_used, d7_limit,
@@ -48,6 +58,27 @@ def encode_state_0x07(state_code: int, detail: str, total: int, busy: int) -> by
     base = struct.pack("<BBB", 0x07, state_code, len(d)) + d
     base += struct.pack("<BB", min(255, max(0, total)), min(255, max(0, busy)))
     return base
+
+
+def encode_v7_state(state_code: int, detail: str, total: int, busy: int,
+                    kind: str = "none") -> bytes:
+    """v7 状态帧:AGG_STATE + 工具名 + 会话计数 + 介入类型(第 3 层)。
+
+    取代旧 0x07,让状态/介入信息也走统一 TLV 帧。kind 为介入类型字符串。
+    """
+    fields = [
+        tlv_u8(TAG_AGG_STATE, state_code),
+        tlv_u8(TAG_TOTAL_SESSIONS, min(255, max(0, total))),
+        tlv_u8(TAG_BUSY_SESSIONS, min(255, max(0, busy))),
+    ]
+    if detail:
+        fields.append(tlv_str(TAG_ACTIVE_TOOL_NAME, detail))
+    kind_code = KIND_CODE.get(kind or "none", 0)
+    if kind_code != 0:
+        fields.append(tlv_u8(TAG_INTERVENTION_KIND, kind_code))
+        if detail:
+            fields.append(tlv_str(TAG_INTERVENTION_TOOL, detail))
+    return encode_v7(fields)
 
 
 def tlv_u8(tag: int, v: int) -> tuple[int, bytes]:
