@@ -18,6 +18,15 @@ def test_userpromptsubmit_and_stop():
                         "payload": {"session_id": "c1"}})[0].state == "idle"
 
 
+def test_request_user_input_tool_is_waiting():
+    # 实测:Codex 用 request_user_input 工具问用户,应映射为 waiting 而非 tool
+    a = CodexAdapter()
+    evs = a.normalize({"event": "PreToolUse",
+                       "payload": {"session_id": "c1",
+                                   "tool_name": "request_user_input"}})
+    assert [x for x in evs if x.kind == "state"][0].state == "waiting"
+
+
 def test_permission_request_is_waiting():
     a = CodexAdapter()
     evs = a.normalize({"event": "PermissionRequest",

@@ -12,6 +12,11 @@ _EVENT_STATE = {
     "Stop": "idle",
 }
 
+# 实测发现:Codex(CLI/App)用一个名为 request_user_input 的「工具调用」来向
+# 用户提问(走 PreToolUse 事件),而非 PermissionRequest。命中这些工具名时,
+# 应表达为「等待用户」而不是普通工具运行。
+_WAIT_TOOLS = {"request_user_input"}
+
 
 class CodexAdapter:
     """把 Codex CLI 的 hook 事件规范化为 CcHudEvent(状态;MVP 不含额度)。"""
@@ -25,9 +30,15 @@ class CodexAdapter:
         sid = payload.get("session_id") or "default"
         out: list[CcHudEvent] = []
 
+        tool = payload.get("tool_name", "")
         if event in _EVENT_STATE:
             state = _EVENT_STATE[event]
-            detail = payload.get("tool_name", "") if state == "tool" else ""
+            detail = ""
+            if event == "PreToolUse":
+                if tool in _WAIT_TOOLS:
+                    state = "waiting"          # Codex 通过工具调用问用户 → 等待态
+                else:
+                    detail = tool
             out.append(CcHudEvent(self.client_id, sid, "state",
                                   state=state, detail=detail))
         elif event == "PermissionRequest":
