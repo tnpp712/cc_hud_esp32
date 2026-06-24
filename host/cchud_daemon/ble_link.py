@@ -26,27 +26,31 @@ class BleLink:
     async def enqueue(self, payload: bytes) -> None:
         await self._queue.put(payload)
 
-    async def _write_one(self, payload: bytes) -> None:
-        last = None
-        for _ in range(2):                       # 重试 1 次
-            try:
-                async with self._factory(self._address, self._timeout) as c:
-                    await c.write_gatt_char(QUOTA_CHAR, payload, response=True)
-                return
-            except Exception as exc:             # noqa: BLE001
-                last = exc
-                await asyncio.sleep(0.4)
-        _log.warning("BLE 写入失败: %s", last)
-
     async def run(self) -> None:
         backoff = 0.5
         while not self._stop.is_set():
             try:
-                payload = await asyncio.wait_for(self._queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
-                continue
-            await self._write_one(payload)        # 串行:一次一个
-            backoff = 0.5
+                async with self._factory(self._address, self._timeout) as client:
+                    backoff = 0.5                      # 连上即重置退避
+                    while not self._stop.is_set():
+                        try:
+                            payload = await asyncio.wait_for(self._queue.get(), timeout=1.0)
+                        except asyncio.TimeoutError:
+                            continue
+                        try:
+                            await client.write_gatt_char(QUOTA_CHAR, payload, response=True)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:        # 写失败→跳出重连;该帧丢弃,后续状态会刷新
+                            _log.warning("BLE 写入失败,将重连: %s", exc)
+                            break
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:                    # 连接失败→退避后重试
+                _log.warning("BLE 连接失败: %s", exc)
+            if not self._stop.is_set():
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)
 
     async def stop(self) -> None:
         self._stop.set()
