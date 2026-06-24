@@ -11,5 +11,10 @@
   <key>StandardErrorPath</key><string>__HOME__/.cchud/daemon.log</string>
   <key>StandardOutPath</key><string>__HOME__/.cchud/daemon.log</string>
   <key>WorkingDirectory</key><string>__DAEMON__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CCHUD_ADDR</key><string>__ADDR__</string>
+    <key>CCHUD_USE_V7</key><string>__USE_V7__</string>
+  </dict>
 </dict>
 </plist>
