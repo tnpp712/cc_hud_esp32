@@ -68,7 +68,10 @@ def _status() -> int:
 def _daemon() -> int:
     """读取 CCHUD_ADDR 环境变量,建 Daemon,asyncio.run 常驻。"""
     addr = os.environ.get("CCHUD_ADDR", "")
-    d = Daemon(addr, SOCK)
+    use_v7 = os.environ.get("CCHUD_USE_V7", "") == "1"
+    from .ble_link import BleLink
+    ble = BleLink(addr, use_v7=use_v7)
+    d = Daemon(addr, SOCK, ble=ble)
 
     async def _run():
         await d.start()
