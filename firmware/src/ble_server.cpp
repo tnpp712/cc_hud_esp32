@@ -152,7 +152,8 @@ public:
                           static_cast<unsigned>(total_sessions));
             if (g_on_state) g_on_state(static_cast<int8_t>(st), detail,
                                        total_sessions, busy_sessions,
-                                       /*intervention_kind=*/0);  // 旧 0x07 无介入信息
+                                       /*intervention_kind=*/0,
+                                       /*sessions=*/nullptr, /*count=*/0);  // 旧 0x07 无介入/列表
             bleNotifyState(kStateOk);
             return;
         }
@@ -243,7 +244,8 @@ public:
             if (f.has_agg_state) {
                 if (g_on_state) g_on_state(static_cast<int8_t>(f.agg_state),
                                            f.tool, f.total_sessions, f.busy_sessions,
-                                           f.intervention_kind);
+                                           f.intervention_kind,
+                                           f.sessions, f.session_count);
             }
             bleNotifyState(kStateOk);
             return;

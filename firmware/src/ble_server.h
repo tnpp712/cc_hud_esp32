@@ -18,6 +18,8 @@
 
 #include <functional>
 
+#include "v7_tlv.h"   // V7Session(第 4 层会话列表)
+
 #include "persistence.h"
 
 namespace cc_hud {
@@ -37,7 +39,9 @@ using IdleWriteHandler = std::function<void(uint32_t unix_ts,
 using StateWriteHandler = std::function<void(int8_t state, const char* detail,
                                              uint8_t total_sessions,
                                              uint8_t busy_sessions,
-                                             uint8_t intervention_kind)>;
+                                             uint8_t intervention_kind,
+                                             const V7Session* sessions,
+                                             uint8_t session_count)>;
 // v9 WiFi-credentials write. Empty `ssid` means "clear creds / disable WiFi".
 using WifiWriteHandler  = std::function<void(const char* ssid,
                                              const char* password)>;
