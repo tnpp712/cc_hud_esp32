@@ -22,6 +22,9 @@ TAG_INTERVENTION_KIND    = 0x40
 TAG_INTERVENTION_TOOL    = 0x41
 TAG_INTERVENTION_TEXT    = 0x42
 TAG_ALERT_CHANNELS       = 0x45
+# 会话列表域(0x60-0x7F,第 4 层)
+TAG_SESSION_LIST_COUNT   = 0x60
+TAG_SESSION_ENTRY        = 0x61
 TAG_UNIX_TS              = 0x80
 TAG_UTC_OFFSET_MIN       = 0x81
 TAG_STATUS_STRING        = 0x84
@@ -61,7 +64,7 @@ def encode_state_0x07(state_code: int, detail: str, total: int, busy: int) -> by
 
 
 def encode_v7_state(state_code: int, detail: str, total: int, busy: int,
-                    kind: str = "none") -> bytes:
+                    kind: str = "none", sessions=None) -> bytes:
     """v7 状态帧:AGG_STATE + 工具名 + 会话计数 + 介入类型(第 3 层)。
 
     取代旧 0x07,让状态/介入信息也走统一 TLV 帧。kind 为介入类型字符串。
@@ -78,6 +81,14 @@ def encode_v7_state(state_code: int, detail: str, total: int, busy: int,
         fields.append(tlv_u8(TAG_INTERVENTION_KIND, kind_code))
         if detail:
             fields.append(tlv_str(TAG_INTERVENTION_TOOL, detail))
+    # 第 4 层:会话列表(sessions 为 (client_id, state_code, kind_code, title) 列表)
+    if sessions:
+        fields.append(tlv_u8(TAG_SESSION_LIST_COUNT, min(255, len(sessions))))
+        for idx, (cid, st_code, k_code, title) in enumerate(sessions):
+            tb = (title or "").encode("utf-8", errors="replace")[:20]
+            fields.append((TAG_SESSION_ENTRY,
+                           bytes([idx & 0xFF, cid & 0xFF, st_code & 0xFF,
+                                  k_code & 0xFF, len(tb)]) + tb))
     return encode_v7(fields)
 
 
