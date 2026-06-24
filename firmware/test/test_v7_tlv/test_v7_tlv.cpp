@@ -1,0 +1,46 @@
+#include <unity.h>
+#include <cstdint>
+#include <cstddef>
+#include "v7_tlv.h"
+
+using namespace cc_hud;
+
+void test_parse_known_tags() {
+    // 头 + TAG_FIVE_H_USED_PCT(0x01)=40 + TAG_TITLE(0x0B)="Hi"
+    const uint8_t buf[] = {0x0B,0,0,1, 0x01,1,40, 0x0B,2,'H','i'};
+    V7Fields f{};
+    TEST_ASSERT_EQUAL(V7_OK, parseV7Tlv(buf, sizeof(buf), f));
+    TEST_ASSERT_TRUE(f.has_five_h_used);
+    TEST_ASSERT_EQUAL_UINT8(40, f.five_h_used);
+    TEST_ASSERT_EQUAL_STRING("Hi", f.title);
+}
+
+void test_unknown_tag_skipped() {
+    // 未知 tag 0xC0 len=2,后跟已知 AGG_STATE(0x20)=2
+    const uint8_t buf[] = {0x0B,0,0,1, 0xC0,2,0xAA,0xBB, 0x20,1,2};
+    V7Fields f{};
+    TEST_ASSERT_EQUAL(V7_OK, parseV7Tlv(buf, sizeof(buf), f));
+    TEST_ASSERT_TRUE(f.has_agg_state);
+    TEST_ASSERT_EQUAL_UINT8(2, f.agg_state);
+}
+
+void test_len_overflow_errors() {
+    const uint8_t buf[] = {0x0B,0,0,1, 0x01,9,40};   // len=9 越界
+    V7Fields f{};
+    TEST_ASSERT_EQUAL(V7_ERR_LEN, parseV7Tlv(buf, sizeof(buf), f));
+}
+
+void test_fragment_rejected() {
+    const uint8_t buf[] = {0x0B,0,0,2, 0x01,1,40};   // total=2
+    V7Fields f{};
+    TEST_ASSERT_EQUAL(V7_ERR_FRAGMENT, parseV7Tlv(buf, sizeof(buf), f));
+}
+
+int main(int, char**) {
+    UNITY_BEGIN();
+    RUN_TEST(test_parse_known_tags);
+    RUN_TEST(test_unknown_tag_skipped);
+    RUN_TEST(test_len_overflow_errors);
+    RUN_TEST(test_fragment_rejected);
+    return UNITY_END();
+}

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cchud-daemon"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = ["bleak>=0.21"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# macOS AF_UNIX 路径上限 104 字节,/private/var/... 的 tmp_path 会超限;
+# 固定 basetemp 到 /tmp 下保证 UDS 路径足够短
+addopts = "--basetemp=/tmp/pytest-cchud"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cchud_daemon*"]

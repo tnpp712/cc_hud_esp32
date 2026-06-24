@@ -15,6 +15,7 @@ extern "C" {
 #include <cstddef>
 
 #include "config.h"
+#include "v7_tlv.h"
 
 namespace cc_hud {
 
@@ -208,6 +209,44 @@ public:
             return;
         }
 
+        // v7 TLV 统一帧(msg_type 0x0B):解析后按已知字段分发。
+        if (len >= 4 && data[0] == kQuotaMsgTypeV7Tlv) {
+            V7Fields f{};
+            V7Result rc = parseV7Tlv(data, len, f);
+            if (rc != V7_OK) {
+                // 分片(V7_ERR_FRAGMENT)与越界(V7_ERR_LEN)均报长度错误;
+                // 第 4 层引入分片重组后可为 fragment 单列状态码。
+                bleNotifyState(kStateErrLen);
+                return;
+            }
+            // 额度/成本类 → QuotaSnapshot
+            if (f.has_five_h_used || f.has_title || f.has_cost) {
+                QuotaSnapshot q;
+                q.mode           = f.has_mode ? f.mode : kSnapshotModeSubscription;
+                q.used_5h        = f.five_h_used;  q.limit_5h = 100;
+                q.used_7d        = f.seven_d_used; q.limit_7d = 100;
+                q.reset_in_s_5h  = f.five_h_reset_s;
+                q.reset_in_s_7d  = f.seven_d_reset_s;
+                q.cost_micro_usd = f.cost_micro_usd;
+                q.duration_s     = f.duration_s;
+                q.ctx_pct        = f.ctx_pct;
+                q.lines_added    = f.lines_added;
+                q.lines_removed  = f.lines_removed;
+                std::strncpy(q.title, f.has_title ? f.title : "CC HUD",
+                             sizeof(q.title) - 1);
+                q.title[sizeof(q.title) - 1] = '\0';
+                q.last_update_ms = static_cast<uint64_t>(millis());
+                if (g_on_write) g_on_write(q);
+            }
+            // 状态类 → g_on_state
+            if (f.has_agg_state) {
+                if (g_on_state) g_on_state(static_cast<int8_t>(f.agg_state),
+                                           f.tool, f.total_sessions, f.busy_sessions);
+            }
+            bleNotifyState(kStateOk);
+            return;
+        }
+
         if (!is_v1 && !is_v2 && !is_v3 && !is_v5 && !is_v6) {
             // Distinguish "wrong length" from "wrong msg_type" for the host.
             if (data[0] == kQuotaMsgTypeV1 || data[0] == kQuotaMsgTypeV2 ||
@@ -333,6 +372,7 @@ void bleServerInit(const QuotaWriteHandler&       on_write,
     g_on_wifi  = on_wifi;
 
     NimBLEDevice::init(kBleDeviceName);
+    NimBLEDevice::setMTU(247);   // 提高单包阈值,配合 DLE/2M PHY
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
     // Just-Works pairing: bonding optional, no MITM, no IO capability.

@@ -137,6 +137,7 @@ constexpr uint8_t kQuotaMsgTypeForceMood = 0x06;
 //   offset 3+ssid_len..:  pwd bytes
 // Pushed once via BLE to provision the device for WiFi OTA. Stored in NVS.
 constexpr uint8_t kQuotaMsgTypeWifi      = 0x09;
+constexpr uint8_t kQuotaMsgTypeV7Tlv    = 0x0B;   // v7 统一 TLV 帧
 constexpr size_t  kWifiSsidMaxLen        = 32;
 constexpr size_t  kWifiPwdMaxLen         = 63;
 
