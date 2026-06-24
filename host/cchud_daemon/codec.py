@@ -57,10 +57,15 @@ def encode_quota_v6(*, mode, h5_used, h5_limit, d7_used, d7_limit,
 
 def encode_time_v4(unix_ts: int, utc_offset_min: int, status: str = "") -> bytes:
     """v4 时间帧(0x04),与 push_idle.py:_pack_v4 字节级一致。
-    设备据此校准 RTC(unix_ts + 本机 millis 增量),空闲页显示正确时钟。"""
-    status_b = status.encode("ascii", errors="replace")[:32]
+    设备据此校准 RTC + 空闲页显示时钟与天气状态串。
+    status 用 UTF-8(中文天气),按字节安全截断到 32 字节(不切断 CJK 字符)。"""
+    s = status or ""
+    b = s.encode("utf-8", errors="replace")
+    while len(b) > 32:
+        s = s[:-1]
+        b = s.encode("utf-8", errors="replace")
     return (struct.pack("<BIhB", 0x04, unix_ts & 0xFFFFFFFF,
-                        utc_offset_min, len(status_b)) + status_b)
+                        utc_offset_min, len(b)) + b)
 
 
 def encode_state_0x07(state_code: int, detail: str, total: int, busy: int) -> bytes:

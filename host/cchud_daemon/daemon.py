@@ -105,13 +105,30 @@ class Daemon:
                 lines_removed=e.lines_removed or 0, title=self._last_title)
         await self._ble.enqueue(payload)
 
+    def _fetch_weather_sync(self) -> str:
+        """复用 push_idle.fetch_weather 获取中文天气;失败返回空串。"""
+        import os
+        import sys
+        host_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if host_dir not in sys.path:
+            sys.path.insert(0, host_dir)
+        from push_idle import fetch_weather
+        return fetch_weather(os.environ.get("CCHUD_WEATHER_CITY", "北京")) or ""
+
     async def _push_time(self) -> None:
-        """推送 v4 时间帧校准设备 RTC(设备无网/无 NTP 时唯一时间源)。"""
+        """推送 v4 时间帧:校准设备 RTC(无网无 NTP 时唯一时间源)+ 空闲页天气。
+        接管旧 push_idle.py 的职责(第 1 层 daemon 重构遗漏的)。"""
         now = int(self._now())
         # 本机 UTC 偏移(分钟),处理夏令时
         is_dst = time.localtime(now).tm_isdst > 0
         off_sec = -(time.altzone if is_dst else time.timezone)
-        await self._ble.enqueue(encode_time_v4(now, off_sec // 60))
+        # 天气获取走线程,避免阻塞事件循环;失败则只推时间(空 status)
+        status = ""
+        try:
+            status = await asyncio.to_thread(self._fetch_weather_sync)
+        except Exception:  # noqa: BLE001
+            status = ""
+        await self._ble.enqueue(encode_time_v4(now, off_sec // 60, status))
 
     async def _push_time_loop(self) -> None:
         """启动即推一次,之后每 30 分钟校准一次。"""
