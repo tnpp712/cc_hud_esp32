@@ -32,6 +32,7 @@ class SocketServer:
             pass                                  # 脏行忽略,不崩溃
         finally:
             writer.close()
+            await writer.wait_closed()
 
     async def start(self) -> None:
         if os.path.exists(self._path):
