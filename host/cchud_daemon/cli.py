@@ -5,6 +5,7 @@ import os
 import sys
 from .daemon import Daemon
 from .adapters.claude import ClaudeAdapter
+from .adapters.codex import CodexAdapter
 
 
 def render_plist(template: str, *, python: str, home: str,
@@ -58,41 +59,54 @@ def merge_claude_settings(settings: dict, emit_path: str) -> dict:
     return s
 
 
-def _install(client: str) -> int:
-    """将 adapter hook_spec 写入 ~/.claude/settings.json,先备份原文件,再渲染写入 plist。"""
-    if client != "claude":
-        print(f"未知客户端: {client}", file=sys.stderr)
-        return 2
-    # emit 脚本与本 cli.py 位于 host 包同级目录
-    host_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    emit = os.path.join(host_dir, "cchud-emit.sh")
-    cfg = os.path.join(HOME, ".claude", "settings.json")
-    cur = {}
-    if os.path.exists(cfg):
-        with open(cfg) as f:
-            cur = json.load(f)
-        bak = cfg + ".cchud-bak"
-        if not os.path.exists(bak):          # 仅首次 install 才写备份
-            with open(bak, "w") as f:
-                json.dump(cur, f, indent=2)
-    merged = merge_claude_settings(cur, emit)
+def merge_codex_hooks(root: dict, emit_path: str) -> dict:
+    """纯函数:把 CodexAdapter 的 hook_spec 合并进 ~/.codex/hooks.json 的 dict。
+
+    保留各事件下的第三方 hook(如 ping-island、r2c),仅去重/更新 cchud 条目。幂等。
+    Codex 条目结构与 Claude 略不同:matcher 在外层。
+    """
+    out = dict(root)
+    hooks = dict(out.get("hooks", {}))
+    spec = CodexAdapter().hook_spec()
+    for event, args in spec.events.items():
+        command = f"{emit_path} {args}"
+        entry = {"matcher": "*",
+                 "hooks": [{"type": "command", "command": command}]}
+        existing = hooks.get(event, [])
+        third_party = [
+            e for e in existing
+            if not any("cchud-emit.sh" in (h.get("command", ""))
+                       for h in e.get("hooks", []))
+        ]
+        hooks[event] = third_party + [entry]
+    out["hooks"] = hooks
+    return out
+
+
+def _backup_once(path: str) -> None:
+    """仅当目标存在且备份不存在时,原样复制一份 .cchud-bak 备份。"""
+    bak = path + ".cchud-bak"
+    if os.path.exists(path) and not os.path.exists(bak):
+        with open(path) as f:
+            content = f.read()
+        with open(bak, "w") as f:
+            f.write(content)
+
+
+def _write_json_config(cfg: str, merged: dict) -> None:
     os.makedirs(os.path.dirname(cfg), exist_ok=True)
     with open(cfg, "w") as f:
         json.dump(merged, f, indent=2)
-    print(f"已写入 {cfg}(备份 {cfg}.cchud-bak)")
 
-    # 渲染 plist 并写入 ~/Library/LaunchAgents/
-    plist_tpl_path = os.path.join(host_dir, "io.cchud.daemon.plist")
-    with open(plist_tpl_path) as f:
+
+def _install_plist(host_dir: str) -> None:
+    """渲染并写入 launchd plist(通用:一个 daemon 服务所有客户端)。"""
+    with open(os.path.join(host_dir, "io.cchud.daemon.plist")) as f:
         tpl = f.read()
     rendered = render_plist(
-        tpl,
-        python=sys.executable,
-        home=HOME,
-        daemon_dir=host_dir,
+        tpl, python=sys.executable, home=HOME, daemon_dir=host_dir,
         addr=os.environ.get("CCHUD_ADDR", ""),
-        use_v7=os.environ.get("CCHUD_USE_V7", ""),
-    )
+        use_v7=os.environ.get("CCHUD_USE_V7", ""))
     launch_agents = os.path.join(HOME, "Library", "LaunchAgents")
     os.makedirs(launch_agents, exist_ok=True)
     plist_dest = os.path.join(launch_agents, "io.cchud.daemon.plist")
@@ -100,6 +114,29 @@ def _install(client: str) -> int:
         f.write(rendered)
     print(f"已写入 plist:{plist_dest}")
     print(f"启动服务请执行:launchctl load {plist_dest}")
+
+
+def _install(client: str) -> int:
+    """安装指定客户端的 hook 配置 + 通用 launchd plist。"""
+    host_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    emit = os.path.join(host_dir, "cchud-emit.sh")
+    if client == "claude":
+        cfg = os.path.join(HOME, ".claude", "settings.json")
+        cur = json.load(open(cfg)) if os.path.exists(cfg) else {}
+        _backup_once(cfg)
+        _write_json_config(cfg, merge_claude_settings(cur, emit))
+        print(f"已写入 {cfg}(首次备份 {cfg}.cchud-bak)")
+    elif client == "codex":
+        cfg = os.path.join(HOME, ".codex", "hooks.json")
+        cur = json.load(open(cfg)) if os.path.exists(cfg) else {}
+        _backup_once(cfg)
+        _write_json_config(cfg, merge_codex_hooks(cur, emit))
+        print(f"已写入 {cfg}(首次备份 {cfg}.cchud-bak)")
+        print("请确认 ~/.codex/config.toml 含 hooks = true")
+    else:
+        print(f"未知客户端: {client}(支持 claude / codex)", file=sys.stderr)
+        return 2
+    _install_plist(host_dir)
     return 0
 
 

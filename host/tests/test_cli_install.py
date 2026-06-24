@@ -1,4 +1,26 @@
-from cchud_daemon.cli import merge_claude_settings, render_plist
+from cchud_daemon.cli import (merge_claude_settings, merge_codex_hooks,
+                              render_plist)
+
+
+def test_codex_merge_adds_events():
+    root = merge_codex_hooks({}, "/x/cchud-emit.sh")
+    assert "PreToolUse" in root["hooks"] and "PermissionRequest" in root["hooks"]
+    cmd = root["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    assert cmd.endswith("cchud-emit.sh codex PreToolUse")
+    assert root["hooks"]["PreToolUse"][0]["matcher"] == "*"
+
+
+def test_codex_merge_preserves_third_party_and_idempotent():
+    # 模拟你已有的 ping-island codex hook(不含 cchud-emit.sh)
+    pi = {"matcher": "*", "hooks": [{"type": "command",
+          "command": "/Users/x/.ping-island/bin/ping-island-bridge --source codex"}]}
+    initial = {"hooks": {"PreToolUse": [pi]}}
+    r1 = merge_codex_hooks(initial, "/x/cchud-emit.sh")
+    cmds = [h["command"] for e in r1["hooks"]["PreToolUse"] for h in e["hooks"]]
+    assert any("ping-island-bridge" in c for c in cmds)          # 第三方保留
+    assert any("cchud-emit.sh codex PreToolUse" in c for c in cmds)  # cchud 追加
+    r2 = merge_codex_hooks(r1, "/x/cchud-emit.sh")
+    assert r1 == r2                                              # 幂等
 
 
 def test_install_adds_hooks_and_statusline():

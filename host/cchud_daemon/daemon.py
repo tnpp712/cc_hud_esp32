@@ -13,6 +13,7 @@ from .event import CcHudEvent
 from .quota_tracker import QuotaTracker
 from .registry import AdapterRegistry
 from .adapters.claude import ClaudeAdapter
+from .adapters.codex import CodexAdapter
 from .session_store import SessionStore
 from .socket_server import SocketServer
 
@@ -31,6 +32,7 @@ class Daemon:
         self._ble = ble if ble is not None else BleLink(address)
         self._registry = AdapterRegistry()
         self._registry.register(ClaudeAdapter())
+        self._registry.register(CodexAdapter())
         self._sock = SocketServer(sock_path, self.on_events, self._registry)
         self._last_title = "CC HUD"
 
