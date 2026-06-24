@@ -565,12 +565,12 @@ git commit -m "feat: 新增 codec(v6 兼容编码 + v7 TLV 编码)"
 **Interfaces:**
 - Consumes: `CcHudEvent`(Task 1)。
 - Produces:
-  - `HookSpec`(dataclass:`events: dict[str,str]`,`statusline: str | None`)。
+  - `HookSpec`(dataclass:`events: dict[str,str]`,`statusline_wrapper: str | None`)。
   - `Adapter`(Protocol:`client_id:int`、`name:str`、`normalize(raw:dict)->list[CcHudEvent]`、`hook_spec()->HookSpec`)。
   - `ClaudeAdapter(client_id=0)`:`normalize` 接受 `{"event":..., "payload":{...}}`,产出事件:
     - `PreToolUse` → state=tool,detail=tool_name;`UserPromptSubmit`/`PostToolUse` → thinking;`Stop` → idle;
     - `Notification` → 仅 message 含 permission/approve/confirm/"needs your" 时 state=waiting,否则 state=idle(复刻降级);
-    - 当 payload 含 `statusline` JSON 时,额外产出 kind=quota 事件(抽 5h/7d used%+resets_at、ctx_pct、cost、duration、行数、标题)。
+    - `Status` → payload 本身即 statusline JSON(emit 透传 statusLine 的 stdin),产出 kind=quota 事件(抽 5h/7d used%+resets_at、ctx_pct、cost、duration、行数、标题)。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -606,13 +606,14 @@ def test_notification_benign_downgrades_to_idle():
 
 def test_statusline_produces_quota_event_with_title():
     a = ClaudeAdapter()
-    payload = {"session_id": "s1", "statusline": {
+    # payload 本身即 statusLine 的 stdin JSON(emit 原样透传)
+    payload = {"session_id": "s1",
         "rate_limits": {"five_hour": {"used_percentage": 40, "resets_at": 2000},
                         "seven_day": {"used_percentage": 28, "resets_at": 9000}},
         "context_window": {"used_percentage": 65, "context_window_size": 1000000},
         "cost": {"total_cost_usd": 0.42, "total_duration_ms": 23000,
                  "total_lines_added": 127, "total_lines_removed": 45},
-        "model": {"display_name": "Opus 4.8"}}}
+        "model": {"display_name": "Opus 4.8"}}
     q = [x for x in a.normalize({"event": "Status", "payload": payload})
          if x.kind == "quota"][0]
     assert q.five_h_used == 40 and q.seven_d_resets_at == 9000
@@ -641,7 +642,7 @@ from ..event import CcHudEvent
 @dataclass
 class HookSpec:
     events: dict[str, str] = field(default_factory=dict)   # 事件名 -> emit 参数
-    statusline: str | None = None
+    statusline_wrapper: str | None = None                  # statusLine 包装脚本文件名(同 emit 目录)
 
 
 class Adapter(Protocol):
@@ -698,9 +699,9 @@ class ClaudeAdapter:
             state = "waiting" if any(h in msg for h in _PERMISSION_HINTS) else "idle"
             out.append(CcHudEvent(self.client_id, sid, "state", state=state))
 
-        sl = payload.get("statusline")
-        if isinstance(sl, dict):
-            out.append(self._quota_from_statusline(sid, sl))
+        if event == "Status":
+            # statusLine 透传:payload 本身就是 statusline JSON
+            out.append(self._quota_from_statusline(sid, payload))
         return out
 
     def _quota_from_statusline(self, sid: str, sl: dict) -> CcHudEvent:
@@ -738,7 +739,7 @@ class ClaudeAdapter:
             "PostToolUse": "claude PostToolUse",
             "Stop": "claude Stop",
             "Notification": "claude Notification",
-        }, statusline="claude Status")
+        }, statusline_wrapper="cchud-statusline.sh")
 ```
 
 - [ ] **Step 4: 运行测试确认通过**
@@ -1270,6 +1271,7 @@ git commit -m "feat: 组装 Daemon 状态管线 + launchd 模板"
 **Files:**
 - Create: `host/cchud_daemon/cli.py`
 - Create: `host/cchud-emit.sh`
+- Modify: `host/cchud-statusline.sh`(后台采集从 quota-push 改为投递 daemon;保留 ccstatusline 渲染)
 - Test: `host/tests/test_cli_install.py`
 
 **Interfaces:**
@@ -1277,9 +1279,9 @@ git commit -m "feat: 组装 Daemon 状态管线 + launchd 模板"
 - Produces:
   - `cli.main(argv: list[str]) -> int`,子命令:
     - `daemon`:读 `CCHUD_ADDR`,建 `Daemon`,`asyncio.run` 常驻。
-    - `install <client>`:把 adapter 的 `hook_spec` 写进 `~/.claude/settings.json`(5 个 hook + statusLine,指向 `cchud-emit.sh`);**先备份**原文件为 `settings.json.cchud-bak`;幂等(重复执行不产生重复项)。
+    - `install <client>`:把 adapter 的 `hook_spec` 写进 `~/.claude/settings.json`(5 个 hook 指向 `cchud-emit.sh`,statusLine 指向 `cchud-statusline.sh` 包装脚本);**先备份**原文件为 `settings.json.cchud-bak`;幂等(重复执行不产生重复项)。
     - `status`:打印 socket 是否存在、daemon.log 末尾若干行。
-  - `merge_claude_settings(settings: dict, emit_path: str) -> dict`:纯函数,便于测试幂等与正确性。
+  - `merge_claude_settings(settings: dict, emit_path: str) -> dict`:纯函数,便于测试幂等与正确性;statusLine 命令由 `emit_path` 同目录的 `statusline_wrapper` 推算。
 
 - [ ] **Step 1: 写失败测试(install 合并幂等)**
 
@@ -1294,7 +1296,8 @@ def test_install_adds_hooks_and_statusline():
     assert "Stop" in s["hooks"]
     cmd = s["hooks"]["Stop"][0]["hooks"][0]["command"]
     assert cmd.endswith("cchud-emit.sh claude Stop")
-    assert s["statusLine"]["command"].endswith("cchud-emit.sh claude Status")
+    # statusLine 指向渲染包装脚本(同目录),而非裸 emit
+    assert s["statusLine"]["command"].endswith("cchud-statusline.sh")
 
 
 def test_install_is_idempotent():
@@ -1336,10 +1339,9 @@ def merge_claude_settings(settings: dict, emit_path: str) -> dict:
         # 幂等:若已存在指向同一 emit 的项则覆盖该项,否则设为唯一项
         hooks[event] = [entry]
     s["hooks"] = hooks
-    if spec.statusline:
-        s["statusLine"] = {"type": "command",
-                           "command": f"{emit_path} {spec.statusline}",
-                           "padding": 0}
+    if spec.statusline_wrapper:
+        wrapper = os.path.join(os.path.dirname(emit_path), spec.statusline_wrapper)
+        s["statusLine"] = {"type": "command", "command": wrapper, "padding": 0}
     return s
 
 
@@ -1431,7 +1433,29 @@ fi
 exit 0
 ```
 
-设权限:`chmod +x host/cchud-emit.sh`
+`host/cchud-statusline.sh`(**Modify** 现有文件:把后台采集从 `cchud-quota-push.sh` 改为投递 daemon,渲染保持不变):
+
+```bash
+#!/usr/bin/env bash
+# cchud-statusline.sh — Claude Code statusLine 包装:渲染状态栏 + 把 JSON 投递给 daemon。
+#
+# 双职责:(1) 沿用 ccstatusline 渲染终端状态栏;(2) 后台把 statusline JSON
+# 透传给 cchud-emit.sh(投递 daemon 采集额度)。绝不阻塞、绝不弄坏状态栏。
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+# Claude 通过 stdin 把会话/额度 JSON 传进来,只读一次。
+INPUT="$(cat)"
+
+# 后台投递给 daemon(fire-and-forget,吞掉所有输出)。
+printf '%s' "$INPUT" | "$HERE/cchud-emit.sh" claude Status >/dev/null 2>&1 &
+disown 2>/dev/null || true
+
+# 渲染真正的状态栏(沿用原命令)。
+printf '%s' "$INPUT" | bunx -y ccstatusline@latest
+```
+
+设权限:`chmod +x host/cchud-emit.sh host/cchud-statusline.sh`
 
 - [ ] **Step 4: 运行测试确认通过**
 
@@ -1444,8 +1468,8 @@ Run: `cd host && .venv/bin/python -m pytest -v`
 Expected: PASS（全部测试)
 
 ```bash
-chmod +x host/cchud-emit.sh
-git add host/cchud_daemon/cli.py host/cchud-emit.sh host/tests/test_cli_install.py
+chmod +x host/cchud-emit.sh host/cchud-statusline.sh
+git add host/cchud_daemon/cli.py host/cchud-emit.sh host/cchud-statusline.sh host/tests/test_cli_install.py
 git commit -m "feat: 新增 cchud CLI(daemon/install/status)与瘦 hook 脚本"
 ```
 
