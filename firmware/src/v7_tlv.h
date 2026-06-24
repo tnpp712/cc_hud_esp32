@@ -21,6 +21,8 @@ enum V7Tag : uint8_t {
     kV7TagActiveToolName  = 0x21,
     kV7TagTotalSessions   = 0x22,
     kV7TagBusySessions    = 0x23,
+    kV7TagInterventionKind = 0x40,   // 0=none 1=approval 2=question 3=error
+    kV7TagInterventionTool = 0x41,
 };
 
 enum V7Result { V7_OK, V7_ERR_LEN, V7_ERR_FRAGMENT };
@@ -41,6 +43,7 @@ struct V7Fields {
     bool     has_tool           = false;  char     tool[16]        = {0};
     bool     has_total          = false;  uint8_t  total_sessions  = 0;
     bool     has_busy           = false;  uint8_t  busy_sessions   = 0;
+    bool     has_intervention   = false;  uint8_t  intervention_kind = 0;
 };
 
 // 解析 v7 TLV 帧:校验帧头(buf[0]==0x0B, total==1),循环读 [tag][len][value]。

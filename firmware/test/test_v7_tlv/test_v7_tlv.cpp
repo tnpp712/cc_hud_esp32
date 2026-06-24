@@ -36,11 +36,23 @@ void test_fragment_rejected() {
     TEST_ASSERT_EQUAL(V7_ERR_FRAGMENT, parseV7Tlv(buf, sizeof(buf), f));
 }
 
+void test_parse_intervention_kind() {
+    // 头 + AGG_STATE(0x20)=3(waiting) + INTERVENTION_KIND(0x40)=2(question)
+    const uint8_t buf[] = {0x0B,0,0,1, 0x20,1,3, 0x40,1,2};
+    V7Fields f{};
+    TEST_ASSERT_EQUAL(V7_OK, parseV7Tlv(buf, sizeof(buf), f));
+    TEST_ASSERT_TRUE(f.has_agg_state);
+    TEST_ASSERT_EQUAL_UINT8(3, f.agg_state);
+    TEST_ASSERT_TRUE(f.has_intervention);
+    TEST_ASSERT_EQUAL_UINT8(2, f.intervention_kind);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_parse_known_tags);
     RUN_TEST(test_unknown_tag_skipped);
     RUN_TEST(test_len_overflow_errors);
     RUN_TEST(test_fragment_rejected);
+    RUN_TEST(test_parse_intervention_kind);
     return UNITY_END();
 }

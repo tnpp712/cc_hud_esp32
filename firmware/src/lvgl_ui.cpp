@@ -720,7 +720,13 @@ void applyTool(const LvglUiModel& m) {
     } else if (m.app_state == kAppStateThinking) {
         snprintf(name, sizeof(name), "thinking");
     } else if (m.app_state == kAppStateWaiting) {
-        snprintf(name, sizeof(name), "needs you");
+        // 第 3 层:按介入类型显示在等什么
+        switch (m.app_intervention) {
+            case 1:  snprintf(name, sizeof(name), "approve?"); break;  // 等批准
+            case 2:  snprintf(name, sizeof(name), "answer?");  break;  // 等回答
+            case 3:  snprintf(name, sizeof(name), "error!");   break;  // 出错
+            default: snprintf(name, sizeof(name), "needs you"); break;
+        }
     } else {
         snprintf(name, sizeof(name), "idle");
     }

@@ -36,7 +36,8 @@ using IdleWriteHandler = std::function<void(uint32_t unix_ts,
 // optional stage-3 session-count bytes.
 using StateWriteHandler = std::function<void(int8_t state, const char* detail,
                                              uint8_t total_sessions,
-                                             uint8_t busy_sessions)>;
+                                             uint8_t busy_sessions,
+                                             uint8_t intervention_kind)>;
 // v9 WiFi-credentials write. Empty `ssid` means "clear creds / disable WiFi".
 using WifiWriteHandler  = std::function<void(const char* ssid,
                                              const char* password)>;
