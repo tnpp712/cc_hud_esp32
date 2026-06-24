@@ -20,4 +20,6 @@ class CcHudEvent:
     lines_removed: int | None = None
     title: str | None = None
     mode: str | None = None
+    # 介入类型(state=waiting 时):None/"approval"(等批准)/"question"(等回答)/"error"
+    intervention_kind: str | None = None
     ts: float = 0.0

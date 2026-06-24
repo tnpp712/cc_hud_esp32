@@ -34,18 +34,22 @@ class CodexAdapter:
         if event in _EVENT_STATE:
             state = _EVENT_STATE[event]
             detail = ""
+            kind = None
             if event == "PreToolUse":
                 if tool in _WAIT_TOOLS:
                     state = "waiting"          # Codex 通过工具调用问用户 → 等待态
+                    kind = "question"          # 等用户回答问题
+                    detail = tool
                 else:
                     detail = tool
             out.append(CcHudEvent(self.client_id, sid, "state",
-                                  state=state, detail=detail))
+                                  state=state, detail=detail,
+                                  intervention_kind=kind))
         elif event == "PermissionRequest":
-            # 等待用户批准工具调用 → waiting,detail 带工具名
+            # 等待用户批准工具调用 → waiting + approval
             out.append(CcHudEvent(self.client_id, sid, "state",
-                                  state="waiting",
-                                  detail=payload.get("tool_name", "")))
+                                  state="waiting", detail=tool,
+                                  intervention_kind="approval"))
         return out
 
     def hook_spec(self) -> HookSpec:

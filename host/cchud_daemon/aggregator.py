@@ -9,14 +9,15 @@ class Aggregator:
     def __init__(self) -> None:
         self._last_key: tuple | None = None
 
-    def aggregate(self, store: SessionStore, now: float) -> tuple[str, str, int, int]:
-        best_state, best_detail, best_p = "idle", "", -1
-        for state, detail in store.live_states(now):
+    def aggregate(self, store: SessionStore,
+                  now: float) -> tuple[str, str, str, int, int]:
+        best_state, best_detail, best_kind, best_p = "idle", "", "none", -1
+        for state, detail, kind in store.live_states(now):
             p = _PRIORITY.get(state, 0)
             if p > best_p:
-                best_p, best_state, best_detail = p, state, detail
+                best_p, best_state, best_detail, best_kind = p, state, detail, kind
         total, busy = store.counts(now)
-        return best_state, best_detail, total, busy
+        return best_state, best_detail, best_kind, total, busy
 
     def changed(self, key: tuple) -> bool:
         if key == self._last_key:

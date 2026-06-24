@@ -3,7 +3,7 @@ import asyncio
 import time
 from .aggregator import Aggregator
 from .ble_link import BleLink
-from .codec import (encode_state_0x07, encode_quota_v6, encode_v7,
+from .codec import (encode_state_0x07, encode_v7_state, encode_quota_v6, encode_v7,
                     tlv_u8, tlv_u32, tlv_str, TAG_FIVE_H_USED_PCT,
                     TAG_FIVE_H_RESET_IN_S, TAG_SEVEN_D_USED_PCT,
                     TAG_SEVEN_D_RESET_IN_S, TAG_CONTEXT_USED_PCT,
@@ -47,11 +47,16 @@ class Daemon:
     async def _handle_state(self, e: CcHudEvent) -> None:
         """state 事件 → SessionStore.update → Aggregator 聚合,变更则推送 0x07。"""
         now = self._now()
-        self._store.update(e.session_id, e.state or "idle", e.detail or "", now)
-        state, detail, total, busy = self._agg.aggregate(self._store, now)
-        if self._agg.changed((state, detail, total, busy)):
-            await self._ble.enqueue(
-                encode_state_0x07(_STATE_CODE.get(state, 0), detail, total, busy))
+        self._store.update(e.session_id, e.state or "idle", e.detail or "", now,
+                           kind=e.intervention_kind or "none")
+        state, detail, kind, total, busy = self._agg.aggregate(self._store, now)
+        if self._agg.changed((state, detail, kind, total, busy)):
+            code = _STATE_CODE.get(state, 0)
+            if getattr(self._ble, "use_v7", False):
+                payload = encode_v7_state(code, detail, total, busy, kind)
+            else:
+                payload = encode_state_0x07(code, detail, total, busy)
+            await self._ble.enqueue(payload)
 
     async def _handle_quota(self, e: CcHudEvent) -> None:
         """quota 事件 → QuotaTracker.merge 分窗合并 → should_push 为真则编码推送。"""

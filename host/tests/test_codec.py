@@ -2,6 +2,33 @@ import struct
 from cchud_daemon import codec
 
 
+def _parse_tlv(frame):
+    tags = {}
+    i = 4
+    while i + 2 <= len(frame):
+        t, l = frame[i], frame[i + 1]
+        tags[t] = frame[i + 2:i + 2 + l]
+        i += 2 + l
+    return tags
+
+
+def test_v7_state_frame_with_intervention():
+    frame = codec.encode_v7_state(3, "ask", total=1, busy=1, kind="question")
+    assert frame[:4] == bytes([0x0B, 0, 0, 1])
+    tags = _parse_tlv(frame)
+    assert tags[codec.TAG_AGG_STATE] == bytes([3])          # waiting
+    assert tags[codec.TAG_INTERVENTION_KIND] == bytes([2])  # question
+    assert tags[codec.TAG_INTERVENTION_TOOL] == b"ask"
+
+
+def test_v7_state_no_intervention_tag_when_none():
+    frame = codec.encode_v7_state(2, "Bash", total=1, busy=1, kind="none")
+    tags = _parse_tlv(frame)
+    assert codec.TAG_INTERVENTION_KIND not in tags          # 非介入不发 kind
+    assert tags[codec.TAG_ACTIVE_TOOL_NAME] == b"Bash"
+    assert tags[codec.TAG_AGG_STATE] == bytes([2])          # tool
+
+
 def test_v6_matches_legacy_layout():
     # 与 push_quota.py 的 _pack_payload_v6 字节级一致
     p = codec.encode_quota_v6(
