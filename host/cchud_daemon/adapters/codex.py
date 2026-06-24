@@ -46,10 +46,15 @@ class CodexAdapter:
                                   state=state, detail=detail,
                                   intervention_kind=kind))
         elif event == "PermissionRequest":
-            # 等待用户批准工具调用 → waiting + approval
-            out.append(CcHudEvent(self.client_id, sid, "state",
-                                  state="waiting", detail=tool,
-                                  intervention_kind="approval"))
+            # "替我审批"/bypass 模式:Codex 自动批准,不需用户介入 → 不亮红灯,
+            # 视为正在处理(thinking)。仅真正需要人工批准时才进 waiting。
+            if payload.get("permission_mode") == "bypassPermissions":
+                out.append(CcHudEvent(self.client_id, sid, "state",
+                                      state="thinking"))
+            else:
+                out.append(CcHudEvent(self.client_id, sid, "state",
+                                      state="waiting", detail=tool,
+                                      intervention_kind="approval"))
         return out
 
     def hook_spec(self) -> HookSpec:

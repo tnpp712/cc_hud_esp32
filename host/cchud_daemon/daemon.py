@@ -3,7 +3,7 @@ import asyncio
 import time
 from .aggregator import Aggregator
 from .ble_link import BleLink
-from .codec import (encode_state_0x07, encode_v7_state, encode_quota_v6, encode_v7, KIND_CODE,
+from .codec import (encode_state_0x07, encode_v7_state, encode_time_v4, encode_quota_v6, encode_v7, KIND_CODE,
                     tlv_u8, tlv_u32, tlv_str, TAG_FIVE_H_USED_PCT,
                     TAG_FIVE_H_RESET_IN_S, TAG_SEVEN_D_USED_PCT,
                     TAG_SEVEN_D_RESET_IN_S, TAG_CONTEXT_USED_PCT,
@@ -105,10 +105,28 @@ class Daemon:
                 lines_removed=e.lines_removed or 0, title=self._last_title)
         await self._ble.enqueue(payload)
 
+    async def _push_time(self) -> None:
+        """推送 v4 时间帧校准设备 RTC(设备无网/无 NTP 时唯一时间源)。"""
+        now = int(self._now())
+        # 本机 UTC 偏移(分钟),处理夏令时
+        is_dst = time.localtime(now).tm_isdst > 0
+        off_sec = -(time.altzone if is_dst else time.timezone)
+        await self._ble.enqueue(encode_time_v4(now, off_sec // 60))
+
+    async def _push_time_loop(self) -> None:
+        """启动即推一次,之后每 30 分钟校准一次。"""
+        while True:
+            try:
+                await self._push_time()
+            except Exception:  # noqa: BLE001 — 时间推送失败不影响主流程
+                pass
+            await asyncio.sleep(1800)
+
     async def start(self) -> None:
-        """启动 socket 监听和 BLE 运行循环。"""
+        """启动 socket 监听、BLE 运行循环和周期时间校准。"""
         await self._sock.start()
         asyncio.create_task(self._ble.run())
+        asyncio.create_task(self._push_time_loop())
 
     async def stop(self) -> None:
         """停止 socket 服务和 BLE。"""

@@ -27,6 +27,15 @@ def test_request_user_input_tool_is_waiting():
     assert [x for x in evs if x.kind == "state"][0].state == "waiting"
 
 
+def test_permission_request_bypass_not_waiting():
+    # 替我审批/bypass 模式:Codex 自动批准,不应亮红灯(非 waiting)
+    a = CodexAdapter()
+    evs = a.normalize({"event": "PermissionRequest",
+                       "payload": {"session_id": "c1", "tool_name": "bash",
+                                   "permission_mode": "bypassPermissions"}})
+    assert [x for x in evs if x.kind == "state"][0].state != "waiting"
+
+
 def test_permission_request_is_waiting():
     a = CodexAdapter()
     evs = a.normalize({"event": "PermissionRequest",
