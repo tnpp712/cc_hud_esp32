@@ -47,6 +47,21 @@ void test_parse_intervention_kind() {
     TEST_ASSERT_EQUAL_UINT8(2, f.intervention_kind);
 }
 
+void test_parse_session_list() {
+    // 头 + SESSION_LIST_COUNT=2 + 2 条 SESSION_ENTRY
+    const uint8_t buf[] = {0x0B,0,0,1,
+        0x60,1, 2,
+        0x61,5, 0,0,1,0,0,                       // idx0 client0 state1 kind0 title""
+        0x61,10, 1,1,3,2,5,'c','o','d','e','x'};  // idx1 client1 state3 kind2 "codex"
+    V7Fields f{};
+    TEST_ASSERT_EQUAL(V7_OK, parseV7Tlv(buf, sizeof(buf), f));
+    TEST_ASSERT_EQUAL_UINT8(2, f.session_count);
+    TEST_ASSERT_EQUAL_UINT8(1, f.sessions[1].client_id);
+    TEST_ASSERT_EQUAL_UINT8(3, f.sessions[1].state);
+    TEST_ASSERT_EQUAL_UINT8(2, f.sessions[1].kind);
+    TEST_ASSERT_EQUAL_STRING("codex", f.sessions[1].title);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_parse_known_tags);
@@ -54,5 +69,6 @@ int main(int, char**) {
     RUN_TEST(test_len_overflow_errors);
     RUN_TEST(test_fragment_rejected);
     RUN_TEST(test_parse_intervention_kind);
+    RUN_TEST(test_parse_session_list);
     return UNITY_END();
 }

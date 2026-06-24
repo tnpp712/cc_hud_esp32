@@ -81,7 +81,16 @@ V7Result parseV7Tlv(const uint8_t* buf, size_t len, V7Fields& out) {
             case kV7TagInterventionKind:
                 if (l >= 1) { out.has_intervention = true; out.intervention_kind = v[0]; }
                 break;
-            default:
+            case kV7TagSessionEntry:
+                // entry: [idx][client_id][state][kind][title_len][title…]
+                if (l >= 5 && out.session_count < kMaxV7Sessions) {
+                    V7Session& s = out.sessions[out.session_count++];
+                    s.idx = v[0]; s.client_id = v[1]; s.state = v[2]; s.kind = v[3];
+                    uint8_t tl = v[4];
+                    uint8_t avail = static_cast<uint8_t>(l - 5);
+                    cpyStr(s.title, sizeof(s.title), v + 5, tl < avail ? tl : avail);
+                }
+                break;
                 // 未知 tag:跳过 value 区域,保证前向兼容
                 break;
         }

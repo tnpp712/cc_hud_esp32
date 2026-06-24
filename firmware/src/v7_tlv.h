@@ -23,6 +23,18 @@ enum V7Tag : uint8_t {
     kV7TagBusySessions    = 0x23,
     kV7TagInterventionKind = 0x40,   // 0=none 1=approval 2=question 3=error
     kV7TagInterventionTool = 0x41,
+    kV7TagSessionListCount = 0x60,   // 第 4 层:会话列表
+    kV7TagSessionEntry     = 0x61,
+};
+
+// 会话列表单条(第 4 层)
+constexpr int kMaxV7Sessions = 8;
+struct V7Session {
+    uint8_t idx        = 0;
+    uint8_t client_id  = 0;          // 0=claude 1=codex 2=gemini …
+    uint8_t state      = 0;          // 同 AGG_STATE
+    uint8_t kind       = 0;          // 同 INTERVENTION_KIND
+    char    title[21]  = {0};
 };
 
 enum V7Result { V7_OK, V7_ERR_LEN, V7_ERR_FRAGMENT };
@@ -44,6 +56,8 @@ struct V7Fields {
     bool     has_total          = false;  uint8_t  total_sessions  = 0;
     bool     has_busy           = false;  uint8_t  busy_sessions   = 0;
     bool     has_intervention   = false;  uint8_t  intervention_kind = 0;
+    uint8_t   session_count     = 0;      // 解析到的会话列表条数(第 4 层)
+    V7Session sessions[kMaxV7Sessions];
 };
 
 // 解析 v7 TLV 帧:校验帧头(buf[0]==0x0B, total==1),循环读 [tag][len][value]。
