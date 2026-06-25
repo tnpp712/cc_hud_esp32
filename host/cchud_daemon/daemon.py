@@ -50,6 +50,10 @@ class Daemon:
         self._store.update(e.session_id, e.state or "idle", e.detail or "", now,
                            kind=e.intervention_kind or "none",
                            client_id=e.client_id)
+        await self._emit_state(now)
+
+    async def _emit_state(self, now: float) -> None:
+        """重新聚合并(仅在变化时)推送状态帧。被状态事件与周期 tick 共用。"""
         state, detail, kind, total, busy = self._agg.aggregate(self._store, now)
         # 第 4 层:会话列表(限前 6 条保证单包),已按优先级排序(等你的在前)
         sessions = [
@@ -65,6 +69,15 @@ class Daemon:
             else:
                 payload = encode_state_0x07(code, detail, total, busy)
             await self._ble.enqueue(payload)
+
+    async def _tick_loop(self) -> None:
+        """周期重聚合:TTL 过期会话被清后,设备自动回 idle(自愈静默结束的会话)。"""
+        while True:
+            try:
+                await self._emit_state(self._now())   # 启动即推一次,清除上次残留态
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(10)
 
     async def _handle_quota(self, e: CcHudEvent) -> None:
         """quota 事件 → QuotaTracker.merge 分窗合并 → should_push 为真则编码推送。"""
@@ -144,6 +157,7 @@ class Daemon:
         await self._sock.start()
         asyncio.create_task(self._ble.run())
         asyncio.create_task(self._push_time_loop())
+        asyncio.create_task(self._tick_loop())
 
     async def stop(self) -> None:
         """停止 socket 服务和 BLE。"""

@@ -36,3 +36,16 @@ async def test_quota_rate_limited():
     t["v"] = 1040.0
     await d.on_events([q])
     assert len(ble.sent) == 2                       # 超 30s 再推
+
+
+@pytest.mark.asyncio
+async def test_stale_session_self_heals_to_idle():
+    # 会话推 thinking 后静默结束(无 Stop);超 TTL 后周期 tick 应自愈为 idle
+    ble = SpyBle()
+    t = {"v": 1000.0}
+    d = Daemon("addr", "/tmp/x.sock", ble=ble, now=lambda: t["v"])
+    await d.on_events([CcHudEvent(0, "s1", "state", state="thinking")])
+    assert ble.sent[-1][1] == 1          # 0x07: state=thinking
+    t["v"] = 1400.0                       # 超 TTL(300s)
+    await d._emit_state(t["v"])
+    assert ble.sent[-1][1] == 0          # 自愈为 idle
