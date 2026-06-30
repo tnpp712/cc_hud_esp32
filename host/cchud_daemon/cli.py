@@ -132,7 +132,7 @@ def _install(client: str) -> int:
         _backup_once(cfg)
         _write_json_config(cfg, merge_codex_hooks(cur, emit))
         print(f"已写入 {cfg}(首次备份 {cfg}.cchud-bak)")
-        print("请确认 ~/.codex/config.toml 含 hooks = true")
+        print("重启 Codex 后按提示 Trust hooks 生效;勿往 config.toml 写 hooks=true(新版报错)")
     else:
         print(f"未知客户端: {client}(支持 claude / codex)", file=sys.stderr)
         return 2

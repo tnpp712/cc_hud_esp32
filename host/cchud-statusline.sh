@@ -14,4 +14,4 @@ printf '%s' "$INPUT" | "$HERE/cchud-emit.sh" claude Status >/dev/null 2>&1 &
 disown 2>/dev/null || true
 
 # 渲染真正的状态栏(沿用原命令)。
-printf '%s' "$INPUT" | bunx -y ccstatusline@latest
+printf '%s' "$INPUT" | npx -y ccstatusline@latest

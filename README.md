@@ -74,12 +74,27 @@
    pio run -e esp32s3_nano -t upload            # USB 首刷
    pio run -e esp32s3_nano_wifi -t upload       # 之后 WiFi 秒刷
    ```
-5. **配电脑**（`host/`，先建 `.venv`）：
+5. **配电脑**（`host/`，**Python ≥ 3.10**，3.9 有 asyncio 事件循环 bug 跑不起 daemon）：
    ```bash
+   python3.12 -m venv .venv && .venv/bin/pip install bleak
+
+   # 找设备 UUID，写进 ~/.zshrc（用环境变量注入，别改脚本里的默认地址）
+   .venv/bin/python push_quota.py --discover
+   echo 'export CCHUD_ADDR=<设备UUID>' >> ~/.zshrc && source ~/.zshrc
+
    # 一次性配 WiFi（经蓝牙存进盒子）
-   python push_wifi.py --address <设备UUID> --ssid 'WiFi名' --password '密码'
+   .venv/bin/python push_wifi.py --address $CCHUD_ADDR --ssid 'WiFi名' --password '密码'
+
+   # 一键装 hooks（保留已有第三方 hook）：Claude / Codex 各一条
+   CCHUD_ADDR=$CCHUD_ADDR CCHUD_USE_V7=1 .venv/bin/python -m cchud_daemon.cli install claude
+   CCHUD_ADDR=$CCHUD_ADDR CCHUD_USE_V7=1 .venv/bin/python -m cchud_daemon.cli install codex
+
+   # 起常驻 daemon（macOS 必须从有蓝牙权限的终端跑，别用 launchd）
+   CCHUD_ADDR=$CCHUD_ADDR CCHUD_USE_V7=1 .venv/bin/python -m cchud_daemon.cli daemon
    ```
-   然后在 `~/.claude/settings.json` 接 `statusLine` + `hooks`（模板见 `host/settings.hooks.example.json`）。
+   - **Codex**：装完**重启 Codex**，按提示 **Trust hooks**（自动加载 `~/.codex/hooks.json`）。⚠️ **别往 `~/.codex/config.toml` 写 `hooks = true`**——新版 Codex 会报 `expected struct HooksToml` 起不来。
+   - 本机没装 `bun` 的话，把 `cchud-statusline.sh` 里的 `bunx` 改成 `npx`。
+   - 完整步骤 / 排错见 [`host/DAEMON.md`](host/DAEMON.md)。
 
 ---
 
@@ -87,8 +102,8 @@
 
 | 工具 | 显示 | 接法 |
 |---|---|---|
-| **Claude Code** | 完整：额度 + 上下文 + 成本 + 4 状态灯 + 多会话 | `statusLine` + `hooks` |
-| **Codex CLI** | 答完一轮 → 灯环绿色脉冲闪三下 | `~/.codex/config.toml` 的 `notify` 指向 `host/cchud-codex-notify.sh`（已有 notify 用 `cchud-codex-dispatch.sh` 链式保留） |
+| **Claude Code** | 完整：额度 + 上下文 + 成本 + 4 状态灯 + 多会话 | `cchud_daemon.cli install claude`（写 `hooks` + `statusLine`，保留第三方） |
+| **Codex CLI** | 状态 + 多会话（思考/工具/等待/空闲） | `cchud_daemon.cli install codex`（写 `~/.codex/hooks.json`，重启 Codex 后 **Trust hooks**；**勿写 `hooks=true`**） |
 | 其它 | 任意脚本调 `push_state.py` 推状态/灯色 | 通用 CLI |
 
 ---

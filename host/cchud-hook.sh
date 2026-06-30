@@ -131,6 +131,21 @@ aggregate() {
     [ "$got" = 1 ] || exit 0
     trap 'rmdir "$BLE_LOCK" 2>/dev/null' EXIT INT TERM
 
+    # Anti-flicker throttle. When two+ sessions both churn tools, unthrottled
+    # state pushes redraw the HUD many times/sec → visible flicker. Rate-limit
+    # *busy* pushes (tool/thinking/waiting) to one per CCHUD_STATE_MIN_GAP s.
+    # idle ALWAYS goes through, so the settle-to-green never gets stuck busy.
+    LAST_TS="$BASE/last-push.ts"
+    MIN_GAP="${CCHUD_STATE_MIN_GAP:-2}"
+    peek="$(aggregate)"
+    IFS=$'\x1f' read -r p_state _p_d _p_t _p_b <<< "$peek"
+    case "$p_state" in
+        tool|thinking|waiting)
+            now_s="$(date +%s)"; last_s="$(cat "$LAST_TS" 2>/dev/null || echo 0)"
+            [ $(( now_s - last_s )) -lt "$MIN_GAP" ] && exit 0
+            ;;
+    esac
+
     # Push until the aggregate stops changing (catches states that landed
     # while we were mid-push), capped at 3 rounds so we never spin.
     for _ in 1 2 3; do
@@ -149,6 +164,7 @@ aggregate() {
             --timeout "$TIMEOUT" \
             </dev/null >>"$LOG" 2>&1
         printf '%s' "$key" > "$LAST_PUSH"
+        date +%s > "$LAST_TS"   # stamp for the anti-flicker busy-rate throttle
         sleep 0.3   # let any concurrent session writes land, then re-check
     done
 ) &

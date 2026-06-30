@@ -23,37 +23,42 @@
 
 ## 2. 安装
 
+> ⚠️ **Python 必须 ≥ 3.10**(推荐 3.12)。3.9 下 `asyncio.Queue/Event` 在 `BleLink.__init__`(`asyncio.run` 之前)绑死旧事件循环,daemon 一跑 BLE 全程 `got Future attached to a different loop`。重建 venv:`python3.12 -m venv host/.venv`。
+
 ```bash
-# 1) 准备 venv 与依赖(首次)
-host/.venv/bin/python -m pip install -e 'host[dev]'
+# 1) 依赖(首次):bleak 给 daemon;构建固件还需 platformio
+host/.venv/bin/python -m pip install bleak
 
-# 2) 找到设备地址(macOS 是 CoreBluetooth UUID)
+# 2) 找设备地址(macOS 是 CoreBluetooth UUID),用环境变量注入(别改脚本里的默认地址)
 host/.venv/bin/python host/push_quota.py --discover --verbose
+echo 'export CCHUD_ADDR=<设备UUID>' >> ~/.zshrc && source ~/.zshrc
 
-# 3) 安装 Claude Code hooks + statusLine + launchd plist
-CCHUD_ADDR=<设备UUID> host/.venv/bin/python -m cchud_daemon.cli install claude
+# 3) 一键装 hooks(Claude / Codex 各一条;CCHUD_USE_V7=1 配 v7 固件)
+CCHUD_ADDR=$CCHUD_ADDR CCHUD_USE_V7=1 host/.venv/bin/python -m cchud_daemon.cli install claude
+CCHUD_ADDR=$CCHUD_ADDR CCHUD_USE_V7=1 host/.venv/bin/python -m cchud_daemon.cli install codex
 ```
 
-`install` 会:
+`install claude` 会:
 - 把 5 个 hook(UserPromptSubmit/PreToolUse/PostToolUse/Stop/Notification)与 statusLine 写入 `~/.claude/settings.json`,**保留该事件下已有的第三方 hook**,仅首次写入 `settings.json.cchud-bak` 备份。
-- 渲染 `~/Library/LaunchAgents/io.cchud.daemon.plist`(含 `CCHUD_ADDR`/`CCHUD_USE_V7` 环境变量)。
+- 渲染 `~/Library/LaunchAgents/io.cchud.daemon.plist`(含 `CCHUD_ADDR`/`CCHUD_USE_V7`)。
+- ⚠️ 若你曾用过旧的 `cchud-hook.sh` 直推 hook,install **不会**自动删它(只识别 `cchud-emit.sh` 旧条目)→ 需手动从 `settings.json` 删掉含 `cchud-hook.sh` 的条目,否则新旧抢 BLE。
 
-> statusLine 指向 `cchud-statusline.sh`,它**保留 ccstatusline 渲染** + 后台把额度 JSON 投递给 daemon,状态栏显示不受影响。
+`install codex` 会:
+- 写 `~/.codex/hooks.json`(5 个 `cchud-emit.sh codex` 事件,保留 ping-island/r2c 等第三方 hook)。
+- ⚠️ **不要往 `~/.codex/config.toml` 写 `hooks = true`**——新版 Codex 报 `invalid type: boolean, expected struct HooksToml` 起不来。Codex **自动加载** `~/.codex/hooks.json`;**重启 Codex 后按提示 `Trust hooks`** 才生效(信任态由 Codex 自己写进 config.toml 的 `[hooks.state]`)。
+
+> statusLine 指向 `cchud-statusline.sh`,它**保留 ccstatusline 渲染** + 后台把额度 JSON 投递给 daemon,状态栏显示不受影响。本机没装 `bun` 就把里面的 `bunx` 改 `npx`。
 
 ## 3. 运行
 
+> ⚠️ **macOS 蓝牙权限**:daemon 必须从**有蓝牙授权的终端**(Terminal/iTerm)启动。launchd 拉起的进程拿不到蓝牙 TCC 授权、又不弹框,会 `BLE is not authorized` 静默失败。所以 macOS 上**别用 launchd 常驻**,用终端跑(可配 tmux / `nohup` 保活)。
+
 ```bash
-# 前台调试运行
-CCHUD_ADDR=<设备UUID> host/.venv/bin/python -m cchud_daemon.cli daemon
+# 常驻运行(从有蓝牙权限的终端;cwd=host 时 -m 能找到包,无需 PYTHONPATH)
+cd host && CCHUD_ADDR=$CCHUD_ADDR CCHUD_USE_V7=1 .venv/bin/python -m cchud_daemon.cli daemon
+# 首次连接 macOS 弹蓝牙授权 → 点允许
 
-# 开启 v7 TLV 编码(需固件已支持 v7)
-CCHUD_ADDR=<设备UUID> CCHUD_USE_V7=1 host/.venv/bin/python -m cchud_daemon.cli daemon
-
-# 由 launchd 常驻(开机自启、崩溃自启)
-launchctl load ~/Library/LaunchAgents/io.cchud.daemon.plist
-launchctl unload ~/Library/LaunchAgents/io.cchud.daemon.plist   # 停止
-
-# 查看状态
+# 查看状态(socket / 日志末尾)
 host/.venv/bin/python -m cchud_daemon.cli status
 ```
 
@@ -78,6 +83,11 @@ host/.venv/bin/python -m cchud_daemon.cli status
 | daemon 终端无日志 | 成功路径不打印,只有 BLE 连接/写入失败才 `warning`。属正常。 |
 | 调试时连不上设备 | daemon 常驻独占 BLE 连接(macOS 单连接)。先停 daemon 再用 `push_*.py` 直连。 |
 | daemon 起来但不推送 | 检查进程环境 `CCHUD_ADDR` 是否非空(launchd 不继承 shell 环境,靠 plist 的 `EnvironmentVariables`)。 |
+| daemon 一跑 BLE 就 `attached to a different loop` | **Python 3.9 的坑**:升到 ≥3.10(`python3.12 -m venv host/.venv` 重建并装 `bleak`)。 |
+| daemon `BLE is not authorized` | macOS 蓝牙 TCC 不授权 launchd 进程。改从有蓝牙权限的终端跑 daemon(见 §3)。 |
+| BLE 失败看不到日志 | warning 走 **stderr**,不是 `~/.cchud/daemon.log`(那个常空)。前台跑看终端,后台跑看重定向的 stderr。 |
+| Codex 启动报 `expected struct HooksToml` | config.toml 里写了 `hooks = true`,删掉。Codex 自动读 `~/.codex/hooks.json`,重启后 `Trust hooks` 即可。 |
+| Codex 状态不上报 | 装完 hooks 后**没重启 Codex 或没 Trust hooks**。重启 Codex,按提示信任 hooks。 |
 
 ## 6. 已知限制(后续层处理)
 
