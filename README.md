@@ -74,27 +74,51 @@
    pio run -e esp32s3_nano -t upload            # USB 首刷
    pio run -e esp32s3_nano_wifi -t upload       # 之后 WiFi 秒刷
    ```
-5. **配电脑**（`host/`，**Python ≥ 3.10**，3.9 有 asyncio 事件循环 bug 跑不起 daemon）：
+5. **配电脑**（目录 `host/`，下面命令都在这个目录里跑）
+
+   电脑在这套系统里是"中间人"：读 AI 的状态/额度 → 通过蓝牙推给盒子。核心是一个常驻后台进程 **daemon**，它**独占一条蓝牙连接**，把多个 AI 会话的状态聚合后推给设备。按 ①→⑤ 配一遍即可。
+
+   **① 建 Python 环境**
    ```bash
    python3.12 -m venv .venv && .venv/bin/pip install bleak
+   ```
+   - `venv` 是隔离的 Python 环境，依赖只装进 `host/.venv/`，不污染系统 Python；`bleak` 是跟蓝牙设备通信的库。
+   - **为什么必须 Python ≥ 3.10**：daemon 启动时会建一个"蓝牙发送队列"，Python 3.9 会把这个队列错绑到旧的事件循环上，导致 daemon 一跑就满屏 `attached to a different loop`、蓝牙完全发不出去；3.10 起改了这个行为才正常。没有 3.12 就 `brew install python@3.12`。
 
-   # 找设备 UUID，写进 ~/.zshrc（用环境变量注入，别改脚本里的默认地址）
-   .venv/bin/python push_quota.py --discover
-   echo 'export CCHUD_ADDR=<设备UUID>' >> ~/.zshrc && source ~/.zshrc
+   **② 找设备地址，存成环境变量**
+   ```bash
+   .venv/bin/python push_quota.py --discover          # 列出附近设备，记下你盒子的 UUID
+   echo 'export CCHUD_ADDR=<上一步的UUID>' >> ~/.zshrc && source ~/.zshrc
+   ```
+   - macOS 上蓝牙设备没有固定 MAC，只有系统分配的一串 UUID，所有推送都要靠它指明"发给哪个盒子"。
+   - **为什么写进 `~/.zshrc`、不改脚本**：地址放进环境变量后，仓库脚本保持原样——`git pull` 不冲突，也不会把你的设备地址提交进代码。之后每个命令都用 `$CCHUD_ADDR` 引用它。
 
-   # 一次性配 WiFi（经蓝牙存进盒子）
+   **③ 给盒子配 WiFi**（一次性，经蓝牙写入）
+   ```bash
    .venv/bin/python push_wifi.py --address $CCHUD_ADDR --ssid 'WiFi名' --password '密码'
+   ```
+   - **为什么要联网**：盒子联网后能自动 NTP 校时、用 WiFi 秒级 OTA 刷固件、开网页面板 `http://cc-hud.local/`。不联网也能用蓝牙，但这些功能没了。
 
-   # 一键装 hooks（保留已有第三方 hook）：Claude / Codex 各一条
+   **④ 装 hooks**（让 AI 自动上报状态）
+   ```bash
    CCHUD_ADDR=$CCHUD_ADDR CCHUD_USE_V7=1 .venv/bin/python -m cchud_daemon.cli install claude
    CCHUD_ADDR=$CCHUD_ADDR CCHUD_USE_V7=1 .venv/bin/python -m cchud_daemon.cli install codex
+   ```
+   - **hook** = AI 工具在关键时刻（开始思考、调工具、等你确认、结束）自动运行的小脚本，这里就是把状态投给 daemon。
+   - 两条命令分别给 Claude Code 和 Codex 各装一套，会自动写进它们各自的配置并**保留你已有的第三方 hook**；`CCHUD_USE_V7=1` 表示用新版 v7 协议（配最新固件）。
 
-   # 起常驻 daemon（macOS 必须从有蓝牙权限的终端跑，别用 launchd）
+   **⑤ 起常驻 daemon**
+   ```bash
    CCHUD_ADDR=$CCHUD_ADDR CCHUD_USE_V7=1 .venv/bin/python -m cchud_daemon.cli daemon
    ```
-   - **Codex**：装完**重启 Codex**，按提示 **Trust hooks**（自动加载 `~/.codex/hooks.json`）。⚠️ **别往 `~/.codex/config.toml` 写 `hooks = true`**——新版 Codex 会报 `expected struct HooksToml` 起不来。
-   - 本机没装 `bun` 的话，把 `cchud-statusline.sh` 里的 `bunx` 改成 `npx`。
-   - 完整步骤 / 排错见 [`host/DAEMON.md`](host/DAEMON.md)。
+   - 保持这个终端窗口开着，它就一直把状态推给盒子；终端没刷出错误 = 正常。
+   - **为什么必须在普通终端跑、不能用 launchd 开机自启**：macOS 的蓝牙权限按"谁启动了这个进程"授权——普通终端有授权，而 launchd 拉起的后台进程拿不到、还不弹授权框，会静默报 `BLE is not authorized`。想保活可以用 tmux 或 `nohup`。
+
+   **Codex 额外两点**
+   - 装完 hooks 要**重启 Codex**，启动时会弹"是否信任 hooks"，选 **Trust all and continue**——新版 Codex 不信任就不跑 hook。
+   - ⚠️ **千万别往 `~/.codex/config.toml` 写 `hooks = true`**：新版 Codex 会报 `expected struct HooksToml` 直接起不来。`~/.codex/hooks.json` 是自动加载的，不需要这行。
+
+   > 状态栏渲染用 `ccstatusline`；本机没装 `bun` 的话，把 `cchud-statusline.sh` 里的 `bunx` 改成 `npx`。完整步骤 / 排错见 [`host/DAEMON.md`](host/DAEMON.md)。
 
 ---
 
