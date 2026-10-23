@@ -31,6 +31,38 @@ V7Result parseV7Tlv(const uint8_t* buf, size_t len, V7Fields& out) {
         const uint8_t* v = buf + i + 2;
 
         switch (tag) {
+            case kV7TagWorkGeneration:
+                if (l != 4) return V7_ERR_LEN;
+                out.has_work_generation = true; out.work_generation = rdU32(v);
+                break;
+            case kV7TagWorkCount:
+                if (l != 1 || v[0] > kMaxWorkSessions) return V7_ERR_LEN;
+                out.has_work_count = true; out.work_count = v[0];
+                break;
+            case kV7TagWorkEntry:
+            case kV7TagWorkEntryV2: {
+                if (l < 21 || v[0] >= kMaxWorkSessions) return V7_ERR_LEN;
+                WorkSession& w = out.work;
+                w.index = v[0]; w.key = rdU32(v + 1); w.client_id = v[5];
+                w.state = v[6]; w.kind = v[7]; w.phase = v[8]; w.flags = v[9];
+                w.elapsed_s = rdU32(v + 10); w.plan_done = v[14]; w.plan_total = v[15];
+                size_t offset = 16;
+                char* dest[] = {w.project, w.model, w.effort, w.detail, w.step};
+                const size_t caps[] = {sizeof(w.project), sizeof(w.model), sizeof(w.effort), sizeof(w.detail), sizeof(w.step)};
+                for (uint8_t n = 0; n < 5; ++n) {
+                    if (offset >= l) return V7_ERR_LEN;
+                    const uint8_t size = v[offset++];
+                    if (offset + size > l || size >= caps[n]) return V7_ERR_LEN;
+                    cpyStr(dest[n], caps[n], v + offset, size); offset += size;
+                }
+                if (tag==kV7TagWorkEntryV2) {
+                    if (offset+2!=l || (v[offset]>100 && v[offset]!=255)) return V7_ERR_LEN;
+                    w.ctx_pct=v[offset++];w.pending_questions=v[offset++];
+                }
+                if (offset != l || w.state > 4 || w.plan_done > w.plan_total) return V7_ERR_LEN;
+                out.has_work_entry = true;
+                break;
+            }
             case kV7TagFiveHUsedPct:
                 if (l >= 1) { out.has_five_h_used = true; out.five_h_used = v[0]; }
                 break;
@@ -60,6 +92,9 @@ V7Result parseV7Tlv(const uint8_t* buf, size_t len, V7Fields& out) {
                 break;
             case kV7TagPlanMode:
                 if (l >= 1) { out.has_mode = true; out.mode = v[0]; }
+                break;
+            case kV7TagMetricsValid:
+                if (l == 1) { out.has_metrics_valid = true; out.metrics_valid = v[0]; }
                 break;
             case kV7TagTitle:
                 out.has_title = true;

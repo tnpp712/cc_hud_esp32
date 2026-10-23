@@ -39,7 +39,8 @@ def test_permission_request_bypass_not_waiting():
 def test_permission_request_is_waiting():
     a = CodexAdapter()
     evs = a.normalize({"event": "PermissionRequest",
-                       "payload": {"session_id": "c1", "tool_name": "bash"}})
+                       "payload": {"session_id": "c1", "tool_name": "bash",
+                                   "approvals_reviewer": "user"}})
     e = [x for x in evs if x.kind == "state"][0]
     assert e.state == "waiting" and e.detail == "bash"
 
@@ -49,10 +50,10 @@ def test_unknown_event_yields_nothing():
                                      "payload": {"session_id": "c1"}}) == []
 
 
-def test_hook_spec_has_five_events():
+def test_hook_spec_includes_cleanup_events():
     spec = CodexAdapter().hook_spec()
     assert set(spec.events) == {
         "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop",
-        "PermissionRequest"}
+        "PermissionRequest", "Interrupt", "SessionEnd"}
     assert spec.events["PreToolUse"] == "codex PreToolUse"
     assert spec.statusline_wrapper is None       # Codex 无 statusline 额度

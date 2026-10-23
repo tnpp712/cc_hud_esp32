@@ -30,7 +30,7 @@ from bleak import BleakClient, BleakScanner
 SERVICE_UUID = "12345678-aaaa-bbbb-cccc-1234567890ab"
 QUOTA_CHAR_UUID = "12345678-aaaa-bbbb-cccc-1234567890a1"
 STATE_CHAR_UUID = "12345678-aaaa-bbbb-cccc-1234567890a2"
-DEFAULT_DEVICE_NAME = "CC-HUD"
+DEFAULT_DEVICE_NAME = "Codex-HUD"
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -181,7 +181,8 @@ async def discover(device_name: str, timeout: float, verbose: bool) -> int:
     def detection_callback(device: bleak.BLEDevice, adv_data) -> None:
         # Match either the GAP name in the device or in the advertisement.
         adv_name = adv_data.local_name or device.name
-        if adv_name == device_name:
+        if adv_name == device_name or (device_name == DEFAULT_DEVICE_NAME and (
+                adv_name == "CC-HUD" or SERVICE_UUID in adv_data.service_uuids)):
             entry = (device.address, adv_name, adv_data.rssi)
             # de-dup by address
             for existing in found:
@@ -421,15 +422,13 @@ async def amain() -> int:
     # are meaningful, but we still accept (and ignore) quota flags.
     if args.mode == "sub":
         missing = [n for n, v in [
-            ("--5h-used",  args.h5_used),
-            ("--5h-limit", args.h5_limit),
             ("--7d-used",  args.d7_used),
             ("--7d-limit", args.d7_limit),
         ] if v is None]
         if missing:
             print(
-                "ERROR: subscription mode requires four quota arguments. "
-                "Missing: " + ", ".join(missing),
+                "订阅模式需要提供 7D 额度参数。"
+                "缺少：" + ", ".join(missing),
                 file=sys.stderr,
             )
             return 2

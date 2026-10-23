@@ -23,3 +23,18 @@ class CcHudEvent:
     # 介入类型(state=waiting 时):None/"approval"(等批准)/"question"(等回答)/"error"
     intervention_kind: str | None = None
     ts: float = 0.0
+    # v7 扩展：5H、7D、上下文、费用、时长、行数是否已知；None 兼容旧客户端。
+    metrics_valid: int | None = None
+    turn_id: str | None = None
+    project: str | None = None
+    model: str | None = None
+    effort: str | None = None
+    phase: str | None = None
+    plan: list | None = None
+    started_at: float | None = None
+    ended_at: float | None = None
+    session_end: bool = False
+    transcript_path: str | None = None
+    pending_questions: int | None = None
+    question_ids: list[str] | None = None
+    question_cancelled: bool = False

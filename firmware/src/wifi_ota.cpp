@@ -63,15 +63,15 @@ const char* appStateName(int8_t s) {
 String statusJson() {
     char buf[640];
     snprintf(buf, sizeof(buf),
-        "{\"title\":\"%s\",\"pct5\":%u,\"pct7\":%u,\"ctx\":%u,"
+        "{\"title\":\"%s\",\"pct7\":%u,\"ctx\":%u,"
         "\"cost_usd\":%u.%06u,\"duration_s\":%u,"
         "\"lines_added\":%u,\"lines_removed\":%u,"
         "\"sessions\":%u,\"busy\":%u,"
         "\"state\":\"%s\",\"detail\":\"%s\",\"ble\":%s,"
         "\"exhaust_warn\":%s,\"exhaust_which\":\"%s\",\"exhaust_eta_s\":%u,"
         "\"battery_pct\":%d,\"battery_low\":%s,"
-        "\"fw\":\"%s\",\"uptime_s\":%lu,\"free_heap\":%lu}",
-        g_status.title, g_status.pct5, g_status.pct7, g_status.ctx,
+        "\"metrics_valid\":%u,\"fw\":\"%s\",\"uptime_s\":%lu,\"free_heap\":%lu}",
+        g_status.title, g_status.pct7, g_status.ctx,
         (unsigned)(g_status.cost_micro / 1000000u),
         (unsigned)(g_status.cost_micro % 1000000u),
         g_status.duration_s, g_status.lines_added, g_status.lines_removed,
@@ -79,11 +79,11 @@ String statusJson() {
         appStateName(g_status.app_state), g_status.app_detail,
         g_status.ble_connected ? "true" : "false",
         g_status.exhaust_warn ? "true" : "false",
-        g_status.exhaust_which == 1 ? "7d" : "5h",
+        "7d",
         g_status.exhaust_eta_s,
         g_status.battery_pct == 255 ? -1 : (int)g_status.battery_pct,
         g_status.battery_low ? "true" : "false",
-        kFirmwareVersion,
+        g_status.metrics_valid, kFirmwareVersion,
         (unsigned long)(millis() / 1000UL),
         (unsigned long)ESP.getFreeHeap());
     return String(buf);
@@ -95,48 +95,45 @@ void handleRoot() {
     static const char kHtml[] PROGMEM =
         "<!doctype html><html><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1'>"
-        "<title>CC-HUD</title><style>"
-        "body{background:#111;color:#eee;font-family:-apple-system,system-ui,sans-serif;margin:0;padding:20px}"
-        ".c{max-width:480px;margin:0 auto}h1{font-size:20px;margin:0 0 16px}"
-        ".r{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #333}"
+        "<title>Codex HUD</title><style>"
+        "body{background:#080d0b;color:#effaf5;font-family:-apple-system,system-ui,sans-serif;margin:0;padding:20px}"
+        ".c{max-width:480px;margin:0 auto}h1{font-size:24px;letter-spacing:-1px;margin:0 0 16px;color:#63e6be}"
+        ".r{display:flex;justify-content:space-between;padding:14px 0;border-bottom:1px solid #333}"
         ".k{color:#888}.v{font-weight:600}.bar{height:8px;background:#222;border-radius:4px;overflow:hidden;margin-top:4px}"
-        ".bar>i{display:block;height:100%%}.warn{color:#f55}"
+        ".bar>i{display:block;height:100%}.warn{color:#ff6b7a}"
         "</style></head><body><div class=c>"
-        "<h1 id=title>CC-HUD</h1>"
-        "<div class=r><span class=k>5h</span><span class=v id=p5>-</span></div>"
-        "<div class=bar><i id=b5 style='width:0;background:#0f0'></i></div>"
-        "<div class=r><span class=k>7d</span><span class=v id=p7>-</span></div>"
-        "<div class=bar><i id=b7 style='width:0;background:#0f0'></i></div>"
-        "<div class=r><span class=k>context</span><span class=v id=ctx>-</span></div>"
-        "<div class=r><span class=k>session</span><span class=v id=cost>-</span></div>"
-        "<div class=r><span class=k>lines</span><span class=v id=lines>-</span></div>"
-        "<div class=r><span class=k>state</span><span class=v id=state>-</span></div>"
-        "<div class=r><span class=k>sessions</span><span class=v id=sess>-</span></div>"
-        "<div class=r id=warnrow style='display:none'><span class=k warn>warning</span><span class='v warn' id=warn>-</span></div>"
-        "<div class=r id=battrow style='display:none'><span class=k>battery</span><span class=v id=batt>-</span></div>"
-        "<div class=r><span class=k>brightness</span><span class=v><input id=br type=range min=1 max=60 value=10 oninput='setbr(this.value)' style='width:140px'></span></div>"
+        "<h1 id=title>Codex HUD</h1>"
+        "<div class=r><span class=k>7D 已用</span><span class=v id=p7>-</span></div>"
+        "<div class=bar><i id=b7 style='width:0;background:#63e6be'></i></div>"
+        "<div class=r><span class=k>上下文</span><span class=v id=ctx>-</span></div>"
+        "<div class=r><span class=k>费用 / 时长</span><span class=v id=cost>-</span></div>"
+        "<div class=r><span class=k>代码增删</span><span class=v id=lines>-</span></div>"
+        "<div class=r><span class=k>运行状态</span><span class=v id=state>-</span></div>"
+        "<div class=r><span class=k>会话</span><span class=v id=sess>-</span></div>"
+        "<div class=r id=warnrow style='display:none'><span class=k warn>预警</span><span class='v warn' id=warn>-</span></div>"
+        "<div class=r id=battrow style='display:none'><span class=k>电量</span><span class=v id=batt>-</span></div>"
+        "<div class=r><span class=k>灯环亮度</span><span class=v><input id=br type=range min=1 max=60 value=10 oninput='setbr(this.value)' style='width:140px'></span></div>"
         "<div style='margin-top:18px;display:flex;gap:10px'>"
-        "<button onclick='cmd(\"next\")' style='flex:1;padding:14px;font-size:16px;background:#333;color:#eee;border:0;border-radius:8px'>next page</button>"
-        "<button onclick='cmd(\"dim\")' style='flex:1;padding:14px;font-size:16px;background:#333;color:#eee;border:0;border-radius:8px'>dim</button>"
+        "<button onclick='cmd(\"next\")' style='flex:1;padding:14px;font-size:16px;background:#193f33;color:#effaf5;border:0;border-radius:8px'>下一页</button>"
+        "<button onclick='cmd(\"dim\")' style='flex:1;padding:14px;font-size:16px;background:#193f33;color:#effaf5;border:0;border-radius:8px'>调暗 / 恢复</button>"
         "</div>"
         "<div class=r style='margin-top:14px;font-size:11px'><span class=k id=fw>-</span><span class=k id=up>-</span></div>"
         "</div><script>"
-        "function tier(p){return p<=60?'#0f0':p<=84?'#ff0':'#f55'}"
+        "function tier(p){return p<=60?'#63e6be':p<=84?'#f4c76b':'#ff6b7a'}"
         "function fmtup(s){let h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h+'h'+m+'m'}"
         "async function cmd(c){try{await fetch('/'+c,{method:'POST'})}catch(e){}}"
         "let brt;function setbr(v){clearTimeout(brt);brt=setTimeout(()=>fetch('/bright?v='+v,{method:'POST'}),250)}"
         "async function u(){try{let r=await fetch('/status.json');let d=await r.json();"
-        "title.textContent=d.title||'CC-HUD';"
-        "p5.textContent=d.pct5+'%';b5.style.width=d.pct5+'%';b5.style.background=tier(d.pct5);"
-        "p7.textContent=d.pct7+'%';b7.style.width=d.pct7+'%';b7.style.background=tier(d.pct7);"
-        "ctx.textContent=d.ctx+'%';"
-        "cost.textContent='$'+d.cost_usd.toFixed(2)+'  '+Math.round(d.duration_s/60)+'m';"
-        "lines.textContent='+'+d.lines_added+' -'+d.lines_removed;"
-        "state.textContent=d.state+(d.detail?(' ('+d.detail+')'):'');"
-        "sess.textContent=d.sessions+' total, '+d.busy+' busy';"
-        "if(d.exhaust_warn){warnrow.style.display='flex';warn.textContent=d.exhaust_which+' out in ~'+Math.round(d.exhaust_eta_s/60)+'m'}else{warnrow.style.display='none'}"
-        "if(d.battery_pct>=0){battrow.style.display='flex';batt.textContent=d.battery_pct+'%'+(d.battery_low?' LOW':'');batt.style.color=d.battery_low?'#f55':'#eee'}else{battrow.style.display='none'}"
-        "fw.textContent='fw '+(d.fw||'?');up.textContent='up '+fmtup(d.uptime_s||0)+' · heap '+Math.round((d.free_heap||0)/1024)+'k';"
+        "const el=id=>document.getElementById(id);const [title,p7,b7,ctx,cost,lines,state,sess,warnrow,warn,battrow,batt,fw,up]=['title','p7','b7','ctx','cost','lines','state','sess','warnrow','warn','battrow','batt','fw','up'].map(el);const valid=d.metrics_valid??63;title.textContent=d.title||'Codex HUD';"
+        "p7.textContent=valid&2?d.pct7+'%':'未提供';b7.style.width=(valid&2?d.pct7:0)+'%';b7.style.background=tier(d.pct7);"
+        "ctx.textContent=valid&4?d.ctx+'%':'未提供';"
+        "cost.textContent=(valid&8?'$'+d.cost_usd.toFixed(2):'未提供')+' / '+(valid&16?Math.round(d.duration_s/60)+'m':'--');"
+        "lines.textContent=valid&32?'+'+d.lines_added+' -'+d.lines_removed:'未提供';"
+        "state.textContent=({idle:'就绪',thinking:'思考中',tool:'使用工具',waiting:'等待确认'}[d.state]||d.state)+(d.detail?(' ('+d.detail+')'):'');"
+        "sess.textContent=d.sessions+' 会话，'+d.busy+' 忙碌';"
+        "if(d.exhaust_warn){warnrow.style.display='flex';warn.textContent=d.exhaust_which+' 预计耗尽：'+Math.round(d.exhaust_eta_s/60)+'m'}else{warnrow.style.display='none'}"
+        "if(d.battery_pct>=0){battrow.style.display='flex';batt.textContent=d.battery_pct+'%'+(d.battery_low?' 低电量':'');batt.style.color=d.battery_low?'#ff6b7a':'#eee'}else{battrow.style.display='none'}"
+        "fw.textContent='fw '+(d.fw||'?');up.textContent='已运行 '+fmtup(d.uptime_s||0)+' · heap '+Math.round((d.free_heap||0)/1024)+'k';"
         "}catch(e){}}"
         "u();setInterval(u,3000);"
         "</script></body></html>";

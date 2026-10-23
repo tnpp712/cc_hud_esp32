@@ -21,6 +21,7 @@ constexpr uint8_t kSnapshotModeApi          = 1;
 constexpr uint8_t kSnapshotModeIdle         = 2;
 
 struct QuotaSnapshot {
+    uint8_t metrics_valid = 0x3F;  // 旧协议默认有效；Codex 显式声明未知指标。
     // Common.
     uint8_t  mode      = kSnapshotModeSubscription;
     char     title[33] = {0};  // ASCII, null-terminated. Default = "CC HUD".

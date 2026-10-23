@@ -12,10 +12,11 @@ OnEvents = Callable[[list[CcHudEvent]], Awaitable[None]]
 class SocketServer:
     """监听 Unix domain socket,把 hook 投递的 JSON 规范化为事件。"""
 
-    def __init__(self, path: str, on_events: OnEvents, registry: AdapterRegistry) -> None:
+    def __init__(self, path: str, on_events: OnEvents, registry: AdapterRegistry, on_status=None) -> None:
         self._path = path
         self._on_events = on_events
         self._registry = registry
+        self._on_status = on_status
         self._server: asyncio.AbstractServer | None = None
 
     async def _handle(self, reader: asyncio.StreamReader,
@@ -25,6 +26,10 @@ class SocketServer:
             if not line:
                 return
             raw = json.loads(line.decode("utf-8"))
+            if raw.get("op") == "status" and self._on_status:
+                writer.write((json.dumps(self._on_status(), ensure_ascii=False) + "\n").encode())
+                await writer.drain()
+                return
             evs = self._registry.normalize(raw)
             if evs:
                 await self._on_events(evs)

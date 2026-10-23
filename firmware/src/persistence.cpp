@@ -52,7 +52,18 @@ bool persistenceLoad(QuotaSnapshot& out) {
     out.idle_status[sizeof(out.idle_status) - 1] = '\0';
     out.last_update_ms = g_prefs.getULong64(kNvsKeyTs,     kTsUnset);
     // Title — falls back to "CC HUD" if no key on first boot.
-    String t = g_prefs.getString(kNvsKeyTitle, "CC HUD");
+    String t = g_prefs.getString(kNvsKeyTitle, "Codex");
+    out.metrics_valid = g_prefs.getUChar("metrics_valid", 0);
+    // 升级后清掉旧品牌数据；保留 WiFi、亮度和时间配置。
+    if (!t.startsWith("Codex")) {
+        t = "Codex"; out.metrics_valid = 0;
+        out.used_5h = out.used_7d = out.limit_5h = out.limit_7d = 0;
+        out.reset_in_s_5h = out.reset_in_s_7d = 0;
+        out.cost_micro_usd = out.duration_s = 0;
+    }
+    // millis 在重启后归零，不能用旧值充当新鲜数据或倒计时起点。
+    out.last_update_ms = 0;
+    out.reset_in_s_5h = out.reset_in_s_7d = 0;
     std::strncpy(out.title, t.c_str(), sizeof(out.title) - 1);
     out.title[sizeof(out.title) - 1] = '\0';
 
@@ -66,6 +77,7 @@ bool persistenceSave(const QuotaSnapshot& snap) {
     }
 
     bool ok = true;
+    ok &= g_prefs.putUChar("metrics_valid", snap.metrics_valid) == sizeof(uint8_t);
     ok &= g_prefs.putUChar(kNvsKeyMode,     snap.mode)           == sizeof(uint8_t);
     ok &= g_prefs.putUShort(kNvsKey5hUsed,  snap.used_5h)        == sizeof(uint16_t);
     ok &= g_prefs.putUShort(kNvsKey5hLim,   snap.limit_5h)       == sizeof(uint16_t);

@@ -2,6 +2,7 @@
 // See led_ring.h for the LED-pattern -> app-state mapping.
 
 #include "led_ring.h"
+#include "quota_gauge.h"
 
 #include <Adafruit_NeoPixel.h>
 
@@ -30,13 +31,11 @@ uint32_t gaugeColor(uint8_t pct) {
     return g_ring.Color(255, 0, 0);
 }
 
-// Render the gauge: ceil(pct/100 * count) pixels lit in tier colour, the
-// rest dim. Always at least 1 lit so an idle low-usage ring isn't dark.
+// 亮灯颗数表示剩余额度；已用比例仍决定绿、黄、红颜色。
 void renderGauge() {
     g_ring.clear();
     const uint32_t col = gaugeColor(g_gauge_pct);
-    uint16_t lit = (static_cast<uint32_t>(g_gauge_pct) * kLedRingCount + 99) / 100;
-    if (lit == 0) lit = 1;
+    uint16_t lit = remainingPixels(g_gauge_pct, kLedRingCount);
     if (lit > kLedRingCount) lit = kLedRingCount;
     for (uint16_t i = 0; i < kLedRingCount; i++) {
         g_ring.setPixelColor(i, i < lit ? col : g_ring.Color(2, 2, 2));

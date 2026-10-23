@@ -74,3 +74,36 @@ async def test_persistent_connection_reused():
     assert len(client.writes) == 3, \
         f"期望 3 次写入,实际 {len(client.writes)} 次"
     assert client.writes == [b"\x01\x00\x01", b"\x02\x00\x02", b"\x03\x00\x03"]
+
+
+@pytest.mark.asyncio
+async def test_failed_frame_is_retried_after_reconnect():
+    writes = []
+    attempts = []
+    class Client(FakeClient):
+        async def write_gatt_char(self, uuid, payload, response=True):
+            attempts.append(bytes(payload))
+            if len(attempts) == 1:
+                raise OSError('模拟连接中断')
+            writes.append(bytes(payload))
+    link = BleLink('addr', client_factory=lambda a,t: Client(a))
+    await link.enqueue(b'latest')
+    task = asyncio.create_task(link.run())
+    await asyncio.sleep(0.65)
+    await link.stop()
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    assert attempts == [b'latest', b'latest']
+    assert writes == [b'latest']
+
+
+@pytest.mark.asyncio
+async def test_unsent_work_snapshot_is_replaced_as_a_whole():
+    FakeClient.instances.clear()
+    link=BleLink('addr',client_factory=lambda a,t:FakeClient(a))
+    await link.enqueue_snapshot([b'old-a',b'old-b'])
+    await link.enqueue_snapshot([b'new-a',b'new-b'])
+    task=asyncio.create_task(link.run())
+    await asyncio.sleep(0.15)
+    await link.stop();task.cancel();await asyncio.gather(task,return_exceptions=True)
+    assert [w for c in FakeClient.instances for w in c.writes]==[b'new-a',b'new-b']

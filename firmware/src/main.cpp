@@ -33,7 +33,7 @@ QuotaSnapshot g_quota;
 volatile bool g_redraw_pending = true;
 volatile bool g_conn_pending   = false;
 volatile bool g_conn_state     = false;
-volatile bool g_alert_pending  = false;  // set true when a 5h/7d crossing >= 95% fired
+volatile bool g_alert_pending  = false;  // 7D 用量首次超过 95% 时告警。
 volatile bool g_force_idle     = false;  // explicit force-idle latch (msg_type 0x05)
 volatile int8_t g_force_mood   = kPetMoodAuto;  // -1 = compute from quota; else 0..4
 volatile uint32_t g_thinking_until_ms = 0;  // millis() until which we draw the star
@@ -47,6 +47,10 @@ char            g_app_state_detail[kAppStateDetailMaxLen + 1] = {0};
 volatile uint8_t g_app_intervention = 0;
 // 会话列表(第 4 层),由 v7 帧解析填充,按优先级排序(等你的在前)
 V7Session g_v7_sessions[kMaxV7Sessions];
+WorkSession g_work_sessions[kMaxWorkSessions];
+WorkAssembler g_work_assembler;
+uint8_t g_work_count = 0;
+uint64_t g_work_capture_ms = 0;
 volatile uint8_t g_v7_session_count = 0;
 // Multi-session counts from the aggregating hook (stage 3). 0 = unknown.
 volatile uint8_t g_total_sessions = 0;
@@ -76,7 +80,6 @@ void onQuotaWrite(const QuotaSnapshot& parsed) {
     QuotaSnapshot next;
     {
         portENTER_CRITICAL(&g_lock);
-        const bool      prev_alerted_5h    = g_quota.alerted_5h;
         const bool      prev_alerted_7d    = g_quota.alerted_7d;
         const uint32_t  prev_unix_ts       = g_quota.unix_ts;
         const int16_t   prev_utc_offset    = g_quota.utc_offset_min;
@@ -88,7 +91,6 @@ void onQuotaWrite(const QuotaSnapshot& parsed) {
         portEXIT_CRITICAL(&g_lock);
 
         next = parsed;
-        next.alerted_5h      = prev_alerted_5h;
         next.alerted_7d      = prev_alerted_7d;
         next.unix_ts         = prev_unix_ts;
         next.utc_offset_min  = prev_utc_offset;
@@ -98,20 +100,17 @@ void onQuotaWrite(const QuotaSnapshot& parsed) {
         next.idle_status[sizeof(next.idle_status) - 1] = '\0';
     }
 
+    // 5H 字段仅为旧协议占位，产品不再使用或展示。
+    next.used_5h = next.limit_5h = 0;
+    next.reset_in_s_5h = 0;
+    next.alerted_5h = false;
+    next.metrics_valid &= ~1u;
     bool need_flash = false;
     if (next.mode == kSnapshotModeSubscription) {
-        const uint8_t pct_5h = computePct(next.used_5h, next.limit_5h);
         const uint8_t pct_7d = computePct(next.used_7d, next.limit_7d);
 
-        if (pct_5h < kAlertThresholdPct) next.alerted_5h = false;
         if (pct_7d < kAlertThresholdPct) next.alerted_7d = false;
 
-        if (pct_5h >= kAlertThresholdPct && !next.alerted_5h) {
-            next.alerted_5h = true;
-            need_flash = true;
-            Serial.printf("[ALERT] 5H crossed %u%% (now %u%%)\n",
-                          (unsigned)kAlertThresholdPct, (unsigned)pct_5h);
-        }
         if (pct_7d >= kAlertThresholdPct && !next.alerted_7d) {
             next.alerted_7d = true;
             need_flash = true;
@@ -193,6 +192,22 @@ void onIdleWrite(uint32_t unix_ts,
 // `state` is one of AppState (0..3). `detail` is the tool name when
 // state == kAppStateTool, empty otherwise. We just stash it for the
 // main loop's state tick to pick up.
+void onWorkWrite(const V7Fields& f) {
+    WorkSession first;
+    uint8_t count=0;
+    portENTER_CRITICAL(&g_lock);
+    bool ready = g_work_assembler.accept(f.work_generation, f.work_count,
+                              f.has_work_entry ? &f.work : nullptr,
+                              g_work_sessions, g_work_count);
+    if (ready) {
+        g_work_capture_ms = millis();
+        count=g_work_count;
+        if (count) first=g_work_sessions[0];
+    }
+    portEXIT_CRITICAL(&g_lock);
+    if (ready) bleUpdateWorkReadback(count?&first:nullptr,count);
+}
+
 void onStateWrite(int8_t state, const char* detail,
                   uint8_t total_sessions, uint8_t busy_sessions,
                   uint8_t intervention_kind,
@@ -321,8 +336,7 @@ void setup() {
     // before the first BLE write arrives.
     cc_hud::QuotaSnapshot loaded;
     if (cc_hud::persistenceLoad(loaded)) {
-        Serial.printf("[NVS] load ok: 5h %u/%u  7d %u/%u  ts %llu\n",
-                      loaded.used_5h, loaded.limit_5h,
+        Serial.printf("[NVS] 已加载：7d %u/%u，时间 %llu\n",
                       loaded.used_7d, loaded.limit_7d,
                       static_cast<unsigned long long>(loaded.last_update_ms));
     } else {
@@ -347,6 +361,7 @@ void setup() {
                           cc_hud::onStateWrite,
                           cc_hud::onWifiWrite);
     cc_hud::otaServerInit(cc_hud::bleGetServer());
+    cc_hud::bleSetWorkHandler(cc_hud::onWorkWrite);
     cc_hud::bleStartAdvertising();
 
     Serial.println("[BOOT] setup done");
@@ -371,6 +386,9 @@ void loop() {
 
     portENTER_CRITICAL(&cc_hud::g_lock);
     m.quota = cc_hud::g_quota;
+    m.work_count = cc_hud::g_work_count;
+    m.work_capture_ms = cc_hud::g_work_capture_ms;
+    for (uint8_t i=0;i<m.work_count;++i) m.work[i]=cc_hud::g_work_sessions[i];
     cc_hud::g_redraw_pending = false;
     cc_hud::g_conn_pending   = false;
     if (cc_hud::g_alert_pending) {
@@ -403,10 +421,9 @@ void loop() {
             ? (now_ms - m.quota.last_update_ms) : 0;
     m.idle_mode = force_idle || (lv_since_last > cc_hud::kIdleThresholdMs);
 
-    // Mood from max(5h%, 7d%), unless forced.
-    const uint8_t pct_5h = cc_hud::computePct(m.quota.used_5h, m.quota.limit_5h);
+    // 宠物心情和灯环额度只由 7D 用量决定。
     const uint8_t pct_7d = cc_hud::computePct(m.quota.used_7d, m.quota.limit_7d);
-    const uint8_t pct = pct_5h > pct_7d ? pct_5h : pct_7d;
+    const uint8_t pct = pct_7d;
     if (force_mood != cc_hud::kPetMoodAuto) {
         m.mood = static_cast<cc_hud::PetMood>(force_mood);
     } else if (pct >= 95) m.mood = cc_hud::kPetMoodOverwhelmed;
@@ -430,28 +447,20 @@ void loop() {
 
     // ── Burn-rate prediction: sample once per fresh quota push, then warn
     //    if either window is projected to exhaust before it resets. ──
-    static cc_hud::BurnTrack s_burn5, s_burn7;
+    static cc_hud::BurnTrack s_burn7;
     static uint64_t s_last_sampled = 0;
     if (m.quota.last_update_ms != 0 &&
         m.quota.last_update_ms != s_last_sampled) {
         s_last_sampled = m.quota.last_update_ms;
-        cc_hud::burnUpdate(s_burn5, m.quota.used_5h, m.quota.last_update_ms);
         cc_hud::burnUpdate(s_burn7, m.quota.used_7d, m.quota.last_update_ms);
     }
     {
-        const uint32_t eta5 = cc_hud::burnEtaSeconds(
-            s_burn5, m.quota.used_5h, m.quota.limit_5h);
         const uint32_t eta7 = cc_hud::burnEtaSeconds(
             s_burn7, m.quota.used_7d, m.quota.limit_7d);
-        const uint32_t rst5 = cc_hud::resetRemaining(
-            m.quota.reset_in_s_5h, m.quota.last_update_ms, now_ms);
         const uint32_t rst7 = cc_hud::resetRemaining(
             m.quota.reset_in_s_7d, m.quota.last_update_ms, now_ms);
-        const bool warn5 = (eta5 > 0 && rst5 > 0 && eta5 < rst5);
         const bool warn7 = (eta7 > 0 && rst7 > 0 && eta7 < rst7);
-        if (warn5 && (!warn7 || eta5 <= eta7)) {
-            m.exhaust_warn = true; m.exhaust_which = 0; m.exhaust_eta_s = eta5;
-        } else if (warn7) {
+        if (warn7) {
             m.exhaust_warn = true; m.exhaust_which = 1; m.exhaust_eta_s = eta7;
         }
     }
@@ -569,7 +578,7 @@ void loop() {
         const cc_hud::LedMode led_mode =
             cc_hud::ledRingModeForAppState(m.app_state);
         if (led_mode == cc_hud::kLedModeIdleDone) {
-            if (g_ring_off) cc_hud::ledRingSetMode(cc_hud::kLedModeOff);
+            if (g_ring_off || !(m.quota.metrics_valid & 2)) cc_hud::ledRingSetMode(cc_hud::kLedModeOff);
             else            cc_hud::ledRingShowGauge(pct);
         } else {
             cc_hud::ledRingSetMode(led_mode);
@@ -584,7 +593,8 @@ void loop() {
         s_web_next = static_cast<uint32_t>(now_ms) + 500;
         cc_hud::WebStatus ws;
         std::strncpy(ws.title, m.quota.title, sizeof(ws.title) - 1);
-        ws.pct5 = pct_5h; ws.pct7 = pct_7d; ws.ctx = m.quota.ctx_pct;
+        ws.metrics_valid = m.quota.metrics_valid;
+        ws.pct7 = pct_7d; ws.ctx = m.quota.ctx_pct;
         ws.cost_micro = m.quota.cost_micro_usd;
         ws.duration_s = m.quota.duration_s;
         ws.lines_added = m.quota.lines_added;

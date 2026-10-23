@@ -27,11 +27,13 @@ ConnectionChangeHandler g_on_conn;
 IdleWriteHandler        g_on_idle;
 StateWriteHandler       g_on_state;
 WifiWriteHandler        g_on_wifi;
+WorkWriteHandler        g_on_work;
 
 // Handles owned by the NimBLE stack. We keep raw pointers to push notifies.
 NimBLEServer*         g_server      = nullptr;
 NimBLECharacteristic* g_quota_char  = nullptr;
 NimBLECharacteristic* g_state_char  = nullptr;
+NimBLECharacteristic* g_work_readback = nullptr;
 
 // Tracks whether at least one central is currently connected. Updated from
 // the server callbacks, read by the rest of the firmware via bleIsConnected.
@@ -222,11 +224,13 @@ public:
                 return;
             }
             // 额度/成本类 → QuotaSnapshot
-            if (f.has_five_h_used || f.has_title || f.has_cost) {
+            if (f.has_work_generation && f.has_work_count && g_on_work) g_on_work(f);
+            if (f.has_five_h_used || f.has_seven_d_used || f.has_title || f.has_cost || f.has_metrics_valid) {
                 QuotaSnapshot q;
+                q.metrics_valid = f.metrics_valid;
                 q.mode           = f.has_mode ? f.mode : kSnapshotModeSubscription;
-                q.used_5h        = f.five_h_used;  q.limit_5h = 100;
-                q.used_7d        = f.seven_d_used; q.limit_7d = 100;
+                q.used_5h        = f.five_h_used;  q.limit_5h = (f.metrics_valid & 1) ? 100 : 0;
+                q.used_7d        = f.seven_d_used; q.limit_7d = (f.metrics_valid & 2) ? 100 : 0;
                 q.reset_in_s_5h  = f.five_h_reset_s;
                 q.reset_in_s_7d  = f.seven_d_reset_s;
                 q.cost_micro_usd = f.cost_micro_usd;
@@ -234,7 +238,7 @@ public:
                 q.ctx_pct        = f.ctx_pct;
                 q.lines_added    = f.lines_added;
                 q.lines_removed  = f.lines_removed;
-                std::strncpy(q.title, f.has_title ? f.title : "CC HUD",
+                std::strncpy(q.title, f.has_title ? f.title : "Codex",
                              sizeof(q.title) - 1);
                 q.title[sizeof(q.title) - 1] = '\0';
                 q.last_update_ms = static_cast<uint64_t>(millis());
@@ -293,7 +297,7 @@ public:
         } else {
             // v1 / v2 layout. Default mode = subscription, default title.
             parsed.mode    = kSnapshotModeSubscription;
-            std::strncpy(parsed.title, "CC HUD", sizeof(parsed.title) - 1);
+            std::strncpy(parsed.title, "Codex", sizeof(parsed.title) - 1);
             parsed.title[sizeof(parsed.title) - 1] = '\0';
             parsed.used_5h        = leU16(data, 1);
             parsed.limit_5h       = leU16(data, 3);
@@ -400,6 +404,16 @@ void bleServerInit(const QuotaWriteHandler&       on_write,
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
     g_state_char->setValue("READY");
 
+    // 只读版本回读，不依赖 WiFi，便于 BLE OTA 后确认实际启动的固件。
+    auto* version = service->createCharacteristic(
+        "12345678-aaaa-bbbb-cccc-1234567890a3", NIMBLE_PROPERTY::READ);
+    version->setValue(reinterpret_cast<const uint8_t*>(kFirmwareVersion),
+                      std::strlen(kFirmwareVersion));
+    g_work_readback = service->createCharacteristic(
+        "12345678-aaaa-bbbb-cccc-1234567890a4", NIMBLE_PROPERTY::READ);
+    const uint8_t empty = 0;
+    g_work_readback->setValue(&empty, 1);
+
     service->start();
 
     // Configure advertising metadata, but DON'T start it yet — the OTA module
@@ -417,6 +431,14 @@ void bleServerInit(const QuotaWriteHandler&       on_write,
 void bleStartAdvertising() {
     NimBLEDevice::startAdvertising();
     Serial.println("[BLE] adv started");
+}
+
+void bleSetWorkHandler(const WorkWriteHandler& handler) { g_on_work = handler; }
+void bleUpdateWorkReadback(const WorkSession* first, uint8_t count) {
+    if (!g_work_readback) return;
+    uint8_t data[200];
+    const size_t size=workReadback(first,count,data);
+    g_work_readback->setValue(data,size);
 }
 
 bool bleIsConnected() {

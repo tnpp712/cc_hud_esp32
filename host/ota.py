@@ -149,12 +149,6 @@ async def run(address: str, fw_path: str, chunk: int, timeout: float,
 
             ok = await wait_state_starts(b"OK", deadline_s=8)
             if ok is None:
-                # Maybe we missed the notify due to early disconnect. Be
-                # forgiving and report likely success if we wrote everything.
-                if sent == fw_size:
-                    log("no OK notify but full payload sent — likely OK",
-                        verbose)
-                    return 0
                 print("ERROR: did not see OK notify after END",
                       file=sys.stderr)
                 return 3

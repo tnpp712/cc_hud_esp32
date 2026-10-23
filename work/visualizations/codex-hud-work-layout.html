@@ -1,0 +1,73 @@
+<div id="codex-hud-layout-preview">
+  <div class="viz-controls"><label class="form-label">查看状态<select class="form-select" id="hud-preview-state"><option value="working">正在工作</option><option value="approval">等待批准</option><option value="idle">空闲</option></select></label><span class="text-small text-muted">方案预览 · 示例数据 · 尚未写入设备</span></div>
+  <div class="viz-carousel viz-dotted-background" aria-label="Codex 工作页方案" data-previous-label="上一方案" data-next-label="下一方案">
+    <section data-variant="任务优先" aria-label="任务优先方案">
+      <div class="hud-stage"><div class="hud-device"><div class="hud-ring" aria-label="24 颗状态灯"></div><div class="hud-screen">
+        <div class="hud-top"><span>Codex</span><span class="hud-state">执行中</span></div>
+        <div class="hud-project">cc_hud_esp32</div><div class="hud-model">GPT-6 Astra · high</div>
+        <div class="hud-separator"></div><div class="hud-phase">运行测试</div><div class="hud-tool">pytest</div>
+        <div class="hud-numbers"><span>计划 <b>2/4 步</b></span><span>本轮 <b>12:34</b></span></div>
+        <div class="hud-sessions">2 会话 · 1 忙碌</div>
+      </div></div></div>
+    </section>
+    <section data-variant="步骤优先" aria-label="步骤优先方案" hidden>
+      <div class="hud-stage"><div class="hud-device"><div class="hud-ring" aria-label="24 颗状态灯"></div><div class="hud-screen hud-steps-screen">
+        <div class="hud-top"><span>Codex</span><span class="hud-state">执行中</span></div>
+        <div class="hud-project">cc_hud_esp32</div><div class="hud-model">GPT-6 Astra · high</div>
+        <div class="hud-separator"></div>
+        <div class="hud-steps"><div>✓ 阅读代码</div><div>✓ 完成修改</div><div class="hud-phase">› 运行测试</div><div class="hud-next">· 检查结果</div></div>
+        <div class="hud-numbers"><span>计划 <b>2/4 步</b></span><span>本轮 <b>12:34</b></span></div>
+      </div></div></div>
+    </section>
+  </div>
+  <div class="text-small text-center" id="hud-light-caption" aria-live="polite">灯带：工作状态优先</div>
+</div>
+<style>
+#codex-hud-layout-preview .hud-stage{height:380px;display:grid;place-items:center;overflow:hidden}
+#codex-hud-layout-preview .hud-device{width:360px;height:360px;position:relative;--hud-fg:#effaf5;--hud-muted:#93a5a0;--hud-accent:#63e6be;--hud-warning:#f4c76b;--hud-alert:#ff6b7a;color:var(--hud-fg);font-family:system-ui,sans-serif}
+#codex-hud-layout-preview .hud-screen{position:absolute;left:60px;top:60px;width:240px;height:240px;box-sizing:border-box;background:#000;padding:12px;border-radius:4px;font-size:16px;line-height:1.2;font-weight:400}
+#codex-hud-layout-preview .hud-top{display:flex;justify-content:space-between;align-items:center;color:var(--hud-accent);font-size:14px;font-weight:500;margin-bottom:12px}
+#codex-hud-layout-preview .hud-project{font-size:20px;font-weight:500;white-space:nowrap}
+#codex-hud-layout-preview .hud-model{font-size:13px;color:var(--hud-muted);margin-top:4px}
+#codex-hud-layout-preview .hud-separator{height:1px;background:#193f33;margin:12px 0}
+#codex-hud-layout-preview .hud-phase{font-size:28px;font-weight:500}
+#codex-hud-layout-preview .hud-tool{font-size:14px;color:var(--hud-muted);margin-top:5px}
+#codex-hud-layout-preview .hud-numbers{display:flex;justify-content:space-between;font-size:13px;margin-top:15px;font-variant-numeric:tabular-nums;color:var(--hud-muted)}
+#codex-hud-layout-preview .hud-numbers b{font-weight:500;color:var(--hud-fg)}
+#codex-hud-layout-preview .hud-sessions{font-size:13px;color:var(--hud-muted);margin-top:12px}
+#codex-hud-layout-preview .hud-led{position:absolute;width:8px;height:8px;border-radius:50%;background:#193f33;left:176px;top:176px}
+#codex-hud-layout-preview .hud-steps{font-size:15px;line-height:1.5;color:var(--hud-muted)}
+#codex-hud-layout-preview .hud-steps .hud-phase{font-size:18px;color:var(--hud-fg)}
+#codex-hud-layout-preview .hud-steps-screen .hud-top{margin-bottom:8px}
+#codex-hud-layout-preview .hud-steps-screen .hud-separator{margin:8px 0}
+#codex-hud-layout-preview .hud-steps-screen .hud-numbers{margin-top:10px}
+@media(max-width:380px){#codex-hud-layout-preview .hud-stage{height:330px}#codex-hud-layout-preview .hud-device{transform:scale(.86)}}
+</style>
+<script>
+(()=>{
+const root=document.getElementById('codex-hud-layout-preview');
+const state={mode:'working',remaining:75};
+const selector=root.querySelector('#hud-preview-state');
+for(const ring of root.querySelectorAll('.hud-ring'))for(let i=0;i<24;i++){const light=document.createElement('span');light.className='hud-led';const angle=(i/24*2*Math.PI)-Math.PI/2;light.style.transform=`translate(${Math.cos(angle)*174}px,${Math.sin(angle)*174}px)`;ring.append(light)}
+function render(){
+ const mode=state.mode,active=mode==='working',approval=mode==='approval';
+ selector.value=mode;
+ for(const device of root.querySelectorAll('.hud-device')){
+  device.querySelector('.hud-state').textContent=approval?'待批准':active?'执行中':'就绪';
+  device.querySelector('.hud-state').style.color=approval?'var(--hud-alert)':'var(--hud-accent)';
+  device.querySelector('.hud-phase').textContent=approval?'需要你确认':active?'运行测试':'本轮结束';
+  const tool=device.querySelector('.hud-tool');if(tool)tool.textContent=approval?'批准执行命令':active?'pytest':'等待新任务';
+  const sessions=device.querySelector('.hud-sessions');if(sessions)sessions.textContent=approval?'2 会话 · 1 待确认':active?'2 会话 · 1 忙碌':'2 会话 · 0 忙碌';
+  for(const [i,light] of [...device.querySelectorAll('.hud-led')].entries()){
+   light.style.background=approval?'var(--hud-alert)':active?(i<5?'var(--hud-warning)':'#193f33'):(i<Math.round(state.remaining*24/100)?'var(--hud-accent)':'#193f33');
+  }
+ }
+ root.querySelector('#hud-light-caption').textContent=approval?'灯带：等待提醒优先（实机红闪）':active?'灯带：工作状态优先（实机彗星）':`灯带：7D 剩余 ${state.remaining}% · ${Math.round(state.remaining*24/100)}/24 颗点亮`;
+}
+selector.addEventListener('change',()=>{state.mode=selector.value;render();if(window.openai?.setWidgetState)window.openai.setWidgetState({modelContent:{预览状态:state.mode},privateContent:{mode:state.mode}}).catch(()=>{})});
+const saved=window.openai?.widgetState?.privateContent;if(saved&&['working','approval','idle'].includes(saved.mode))state.mode=saved.mode;
+window.addEventListener('openai:set_globals',e=>{const saved=e.detail?.globals?.widgetState?.privateContent;if(saved&&['working','approval','idle'].includes(saved.mode)){state.mode=saved.mode;render()}});
+render();
+if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:render});tweak.addSlider(state,'remaining',{label:'示例 7D 余量',min:0,max:100,step:5,unit:'%'})}
+})();
+</script>

@@ -45,6 +45,9 @@ using StateWriteHandler = std::function<void(int8_t state, const char* detail,
 // v9 WiFi-credentials write. Empty `ssid` means "clear creds / disable WiFi".
 using WifiWriteHandler  = std::function<void(const char* ssid,
                                              const char* password)>;
+using WorkWriteHandler = std::function<void(const V7Fields&)>;
+void bleSetWorkHandler(const WorkWriteHandler& handler);
+void bleUpdateWorkReadback(const WorkSession* first, uint8_t count);
 
 // Initialise NimBLE, build the quota GATT service, and configure advertising
 // metadata. DOES NOT start advertising — that's separated out so additional

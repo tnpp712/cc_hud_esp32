@@ -3,6 +3,9 @@ import asyncio
 import json
 import os
 import sys
+import shlex
+import logging
+import fcntl
 from .daemon import Daemon
 from .adapters.claude import ClaudeAdapter
 from .adapters.codex import CodexAdapter
@@ -28,7 +31,7 @@ def render_plist(template: str, *, python: str, home: str,
             .replace("__USE_V7__", use_v7))
 
 HOME = os.path.expanduser("~")
-SOCK = os.path.join(HOME, ".cchud", "daemon.sock")
+SOCK = os.environ.get("CCHUD_SOCKET", os.path.join(HOME, ".cchud", "daemon.sock"))
 LOG = os.path.join(HOME, ".cchud", "daemon.log")
 
 
@@ -42,7 +45,7 @@ def merge_claude_settings(settings: dict, emit_path: str) -> dict:
     hooks = dict(s.get("hooks", {}))
     spec = ClaudeAdapter().hook_spec()
     for event, args in spec.events.items():
-        command = f"{emit_path} {args}"
+        command = f"{shlex.quote(emit_path)} {args}"
         entry = {"hooks": [{"type": "command", "command": command}]}
         # 保留该 event 下不指向 cchud-emit.sh 的第三方条目,去掉旧的 cchud 条目,再追加新 cchud 条目
         existing = hooks.get(event, [])
@@ -69,15 +72,16 @@ def merge_codex_hooks(root: dict, emit_path: str) -> dict:
     hooks = dict(out.get("hooks", {}))
     spec = CodexAdapter().hook_spec()
     for event, args in spec.events.items():
-        command = f"{emit_path} {args}"
+        command = f"{shlex.quote(emit_path)} {args}"
         entry = {"matcher": "*",
-                 "hooks": [{"type": "command", "command": command}]}
+                 "hooks": [{"type": "command", "command": command, "timeout": 3}]}
         existing = hooks.get(event, [])
-        third_party = [
-            e for e in existing
-            if not any("cchud-emit.sh" in (h.get("command", ""))
-                       for h in e.get("hooks", []))
-        ]
+        third_party = []
+        for group in existing:
+            remaining = [h for h in group.get("hooks", [])
+                         if "cchud-emit.sh" not in h.get("command", "")]
+            if remaining:
+                third_party.append({**group, "hooks": remaining})
         hooks[event] = third_party + [entry]
     out["hooks"] = hooks
     return out
@@ -136,34 +140,66 @@ def _install(client: str) -> int:
     else:
         print(f"未知客户端: {client}(支持 claude / codex)", file=sys.stderr)
         return 2
-    _install_plist(host_dir)
+    # macOS 的 launchd 通常没有 BLE 权限；由已授权终端启动常驻进程。
+    print("请从具有蓝牙权限的终端运行 daemon。")
     return 0
 
 
 def _status() -> int:
-    """打印 socket 是否存在、daemon.log 末尾若干行。"""
-    print(f"socket: {'存在' if os.path.exists(SOCK) else '缺失'} ({SOCK})")
-    if os.path.exists(LOG):
-        with open(LOG) as f:
-            tail = f.readlines()[-10:]
-        print("".join(tail))
-    return 0
+    """读取 daemon 的实时会话与设备回读，不把旧日志当成当前状态。"""
+    import socket
+    try:
+        with socket.socket(socket.AF_UNIX) as client:
+            client.settimeout(2)
+            client.connect(SOCK)
+            client.sendall(b'{"op":"status"}\n')
+            data = b""
+            while b"\n" not in data and len(data) < 65536:
+                part = client.recv(4096)
+                if not part:
+                    break
+                data += part
+        print(json.dumps(json.loads(data), ensure_ascii=False, indent=2))
+        return 0
+    except (OSError, ValueError) as exc:
+        print(f"无法读取 HUD 实时状态：{exc}", file=sys.stderr)
+        return 1
 
 
 def _daemon() -> int:
     """读取 CCHUD_ADDR 环境变量,建 Daemon,asyncio.run 常驻。"""
     addr = os.environ.get("CCHUD_ADDR", "")
-    use_v7 = os.environ.get("CCHUD_USE_V7", "") == "1"
+    if not addr:
+        print("缺少 CCHUD_ADDR，请先发现并指定 HUD 地址。", file=sys.stderr)
+        return 2
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    os.makedirs(os.path.dirname(SOCK), exist_ok=True)
+    lock = open(os.path.join(os.path.dirname(SOCK), "daemon.lock"), "a")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("已有 HUD daemon 在运行，请先停止原进程。", file=sys.stderr)
+        lock.close()
+        return 2
+    use_v7 = os.environ.get("CCHUD_USE_V7", "1") == "1"
     from .ble_link import BleLink
     ble = BleLink(addr, use_v7=use_v7)
     d = Daemon(addr, SOCK, ble=ble)
 
     async def _run():
-        await d.start()
-        while True:
-            await asyncio.sleep(3600)
+        try:
+            await d.start()
+            while True:
+                await asyncio.sleep(3600)
+        finally:
+            await d.stop()
 
-    asyncio.run(_run())
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        lock.close()
     return 0
 
 

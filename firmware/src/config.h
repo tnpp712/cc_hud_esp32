@@ -76,7 +76,7 @@ constexpr uint32_t kLedBlinkHalfMs    = 500;  // 500ms on / 500ms off
 // kDefaultTzMin is the timezone used until a BLE idle-push provides one
 // (480 = UTC+8, China). NVS-persisted tz overrides it.
 // ---------------------------------------------------------------------------
-constexpr const char* kFirmwareVersion = "2026.06.21";
+constexpr const char* kFirmwareVersion = "2026.10.23-codex.4";
 constexpr int16_t     kDefaultTzMin    = 480;   // UTC+8
 constexpr const char* kNtpServer1      = "ntp.aliyun.com";
 constexpr const char* kNtpServer2      = "pool.ntp.org";
@@ -85,7 +85,7 @@ constexpr const char* kNtpServer2      = "pool.ntp.org";
 // BLE protocol identifiers. Service and characteristic UUIDs must match the
 // host-side bridge exactly.
 // ---------------------------------------------------------------------------
-constexpr const char* kBleDeviceName        = "CC-HUD";
+constexpr const char* kBleDeviceName        = "Codex-HUD";
 constexpr const char* kBleServiceUuid       = "12345678-aaaa-bbbb-cccc-1234567890ab";
 constexpr const char* kBleQuotaCharUuid     = "12345678-aaaa-bbbb-cccc-1234567890a1";
 constexpr const char* kBleStateCharUuid     = "12345678-aaaa-bbbb-cccc-1234567890a2";

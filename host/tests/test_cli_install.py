@@ -86,3 +86,11 @@ def test_render_plist_substitutes_placeholders():
     assert "<string>1</string>" in result
     # 无残留占位符
     assert "__" not in result, f"仍有未替换的占位符:\n{result}"
+
+
+def test_codex_merge_preserves_mixed_group():
+    third = {"type": "command", "command": "/x/other-hook"}
+    root = {"hooks": {"Stop": [{"hooks": [third, {
+        "type": "command", "command": "/old/cchud-emit.sh codex Stop"}]}]}}
+    result = merge_codex_hooks(root, "/new/cchud-emit.sh")
+    assert third in result["hooks"]["Stop"][0]["hooks"]

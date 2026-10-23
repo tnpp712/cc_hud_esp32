@@ -26,3 +26,20 @@ async def test_socket_roundtrip(tmp_path):
     finally:
         await srv.stop()
     assert any(e.detail == "Bash" for e in received)
+
+
+@pytest.mark.asyncio
+async def test_status_is_read_only(tmp_path):
+    import json
+    received=[]
+    async def on_events(events):received.extend(events)
+    reg=AdapterRegistry()
+    srv=SocketServer(str(tmp_path/'status.sock'),on_events,reg,lambda:{'ble_connected':True,'sessions':[]})
+    await srv.start()
+    try:
+        reader,writer=await asyncio.open_unix_connection(str(tmp_path/'status.sock'))
+        writer.write(b'{"op":"status"}\n');await writer.drain()
+        assert json.loads(await reader.readline())=={'ble_connected':True,'sessions':[]}
+        writer.close();await writer.wait_closed()
+        assert received==[]
+    finally:await srv.stop()

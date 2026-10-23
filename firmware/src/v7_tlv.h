@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include "work_snapshot.h"
 
 namespace cc_hud {
 
@@ -17,6 +18,7 @@ enum V7Tag : uint8_t {
     kV7TagLinesRemoved    = 0x09,
     kV7TagPlanMode        = 0x0A,
     kV7TagTitle           = 0x0B,
+    kV7TagMetricsValid    = 0x0C,  // 指标有效位：5H/7D/上下文/费用/时长/行数
     kV7TagAggState        = 0x20,
     kV7TagActiveToolName  = 0x21,
     kV7TagTotalSessions   = 0x22,
@@ -25,6 +27,10 @@ enum V7Tag : uint8_t {
     kV7TagInterventionTool = 0x41,
     kV7TagSessionListCount = 0x60,   // 第 4 层:会话列表
     kV7TagSessionEntry     = 0x61,
+    kV7TagWorkEntry        = 0x62,
+    kV7TagWorkGeneration   = 0x63,
+    kV7TagWorkCount        = 0x64,
+    kV7TagWorkEntryV2      = 0x65,
 };
 
 // 会话列表单条(第 4 层)
@@ -40,6 +46,11 @@ struct V7Session {
 enum V7Result { V7_OK, V7_ERR_LEN, V7_ERR_FRAGMENT };
 
 struct V7Fields {
+    bool has_work_generation = false, has_work_count = false, has_work_entry = false;
+    uint32_t work_generation = 0;
+    uint8_t work_count = 0;
+    WorkSession work;
+    bool has_metrics_valid = false; uint8_t metrics_valid = 0x3F;
     bool     has_five_h_used    = false;  uint8_t  five_h_used     = 0;
     bool     has_five_h_reset   = false;  uint32_t five_h_reset_s  = 0;
     bool     has_seven_d_used   = false;  uint8_t  seven_d_used    = 0;

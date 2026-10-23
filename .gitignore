@@ -35,6 +35,7 @@ venv/
 # Secrets
 .env
 .env.*
+.local-backup/
 
 # Misc
 proxy/

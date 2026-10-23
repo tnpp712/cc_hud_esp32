@@ -1,155 +1,145 @@
-# cc_hud · AI 状态灯
+# Codex HUD · 桌面状态屏
 
-放在桌上的一个小硬件 HUD：一块 1.54″ 彩屏显示 **Claude Code / Codex 的额度、花费、上下文、状态**，外圈 24 颗灯随 AI "在干嘛"红黄绿变化。ESP32-S3 驱动，电脑通过蓝牙/WiFi 把状态推给它。
+把 Codex 的运行状态、额度、上下文和会话统计显示在 ESP32-S3 桌面设备上。主机通过 BLE 常驻连接，固件驱动 240×240 彩屏和 24 颗灯环。
 
-> 本仓库是 [`uk0/cc_hud_esp32`](https://github.com/uk0/cc_hud_esp32) 的私有 fork，在原版"BLE 推额度 + LCD HUD"基础上做了大量产品级增强（见下）。英文原版说明见 [`README.en.md`](README.en.md)。
+基于 [uk0/cc_hud_esp32](https://github.com/uk0/cc_hud_esp32) 的私有 fork，2026-10-23 将默认客户端、图标、思考动画、文字和配色改为 Codex。按用户要求移除 5H 额度及相关预警。原有 BLE UUID、NVS 命名空间、WiFi 配置与 `cc-hud.local` 地址保持兼容；旧协议中的 5H 字段仅作为兼容占位，不参与显示、预警、灯环或宠物状态。
 
-<p align="center">
-  <img src="images/fork-hud.jpg" alt="HUD 显示额度" width="44%" />
-  &nbsp;&nbsp;
-  <img src="images/fork-ring.jpg" alt="设备 + 24 灯环" width="44%" />
-</p>
+## 功能
 
-<p align="center"><em>左：屏幕实时显示 5H/7D 额度 + 重置倒计时 + 上下文用量。右：屏 + 24 颗 WS2812B 状态灯环。</em></p>
-
----
-
-## 🔱 本 fork 新增功能
-
-**显示 / UI**
-- **4 屏轮播状态机**：额度页 / 统计页（成本·时长·增删行·5H 重置倒计时）/ 工具页（大图标 + N 会话·M 忙）/ 时钟页；空闲自动轮播、干活锁工具页、防抖
-- **燃烧率耗尽预测**：按当前用速预测"X 窗口会在重置前耗尽" → footer 红字预警
-- 更大字号 HUD + CJK 中文天气
-
-**24 灯环状态灯（WS2812B，`firmware/src/led_ring.*`）**
-- 空闲 = 绿色**额度表**（点亮颗数 = 额度%、分级变色）
-- 工作 = 黄色**彗星** · 等权限 = 红色**整环闪** · 低电 = 橙色慢闪
-- **Codex 完成绿脉冲**：AI 答完一轮闪三下
-
-**无线 / OTA / 网页（`firmware/src/wifi_ota.*`）**
-- **WiFi OTA**：`cc-hud.local` 局域网秒级刷机（BLE OTA 保留作救砖）
-- **网页面板** `http://cc-hud.local/`：实时额度/成本/状态/电量，**亮度滑块（存 NVS、免重刷）**、翻页/调暗遥控、固件版本/运行时长/内存
-- **NTP 自动校时**：WiFi 在线自动授时，断电后免手动校准
-
-**智能 / 省电**
-- 夜间(23:00–07:00)+ 长空闲自动调暗、空闲 10 分钟熄灯环
-- 修复 USB-CDC-on-boot 导致的"插电脑屏黑"（`displayInit` 前移）
-
-**多 AI 工具支持**
-- **Codex CLI**：`~/.codex/config.toml` 的 `notify` → 适配器，答完触发灯环绿脉冲；链式调度器保留已有 notify（如 computer-use）
-- 任意工具调 `host/push_state.py` 即可推状态；多工具/多会话**统一聚合**（有人忙就显示忙）
-
-**可选硬件（接上即生效，不接不误报）**
-- 电池电量监测（2×2.2kΩ 分压 → 丝印 A0）+ 低电告警
-- 实体按钮（→ 丝印 A1）短按翻页、长按调暗
-
----
-
-## 硬件一览
-
-| 部件 | 选型 |
+| 功能 | Codex 版本行为 |
 |---|---|
-| 主板 | ESP32-S3-Nano（N8R8/N16R8，兼容 Arduino Nano ESP32 引脚） |
-| 屏 | 1.54″ 240×240 IPS ST7789（4 线 SPI，8pin） |
-| 灯环 | WS2812B **24 位**单圈圆环（内径 ≥56mm）+ 470Ω 电阻 + 470µF 电容 |
-| 电源 | 3.7V 锂电（带保护板）+ TP4056 充电 + MT3608 升压 5V + 自锁开关 |
-| 可选 | 2×2.2kΩ（电量）、自复位按钮、亚克力盒 |
+| 工作页 | 项目名、模型、思考强度、每会话上下文已用比例、待回答数量、当前阶段、工具、结构化计划步骤、本轮耗时、会话计数 |
+| 多会话 | 人工等待优先，其次工具执行、思考和空闲；同类状态按最近活动排序，最多浏览 8 个会话详情 |
+| 时钟页 | 全部空闲 3 分钟后显示时钟、天气和字符宠物；新任务开始返回工作页 |
+| 灯环 | 工作彗星、等待红闪、完成绿脉冲、低电提示；空闲时亮灯颗数表示 7D 剩余额度 |
+| 按钮 | 短按依次切换会话，最后进入时钟，手动选择保持 10 秒；长按约 0.8 秒调暗／恢复 |
+| 网页面板 | 保留 7D 精确用量、重置信息、上下文、费用与行数；翻页、调暗和灯环亮度控制 |
+| 升级 | WiFi OTA 与 BLE OTA；支持版本和已接收工作信息的只读回读 |
+| 兼容 | 旧 v1–v6 与 v7 保留；工作页元数据使用 v7 扩展，旧协议状态仍能显示 |
 
-> ⚠ 丝印坑：这块板低位 GPIO 标 **A0–A7**，灯环 DIN 接 **D2(=GPIO5)** 不是 "D5"。完整对照见制作指南。
+5H 及其预警已移除。屏幕不再轮播额度和重置页；额度精确值在网页查询，余量用灯环表达。未知额度时空闲灯环熄灭，避免把未知显示为满额。
 
----
+### 数据含义
 
-## 快速上手
+- 额度与上下文来自本机 `CODEX_HOME/sessions` 下的会话日志，默认 `~/.codex/sessions` 。通过只读会话索引和 hook 登记发现活跃日志，支持几天前创建、今天仍在工作的会话；索引不可用时降级扫描近两天目录。日志增量读取。
+- 只采集 `window_minutes=10080` 的 7D 额度，不再采集或展示 5H。无论该窗口出现在 `primary` 还是 `secondary` 都能识别。
+- 工作页上下文使用该会话最近一次请求的 token 数与其上下文窗口计算，表示已用比例；思考强度取真实会话元数据，缺失时显示 `--`。
+- 异步问题确认入队后显示“待回答 N”，同时保留实际工作阶段。按问题 ID 接收回答，全部回答后清除提醒；工具返回“已接受”不会当作已回答。中断、会话关闭和提交失败也会清除对应提醒，普通工具完成不会误清除。
+- 行数在网页展示，只统计日志中成功的 `FileChange`，不包括 shell 或外部编辑器写入，也不是当前 Git 净差异。
+- 项目和模型来自真实 hook 与会话元数据；步骤只来自 `PostToolUse` 中的结构化 `update_plan` 信息。没有计划数据时隐藏步骤行。
+- 使用 `tool_use_id` 配对并行工具，自动审批不清除正在运行的工具；中断或结束后的迟到工具结果不重新点亮工作状态。内部 `codex-auto-review` 会话不计入用户工作会话。
+- 订阅日志没有实际美元账单；费用显示“未提供”。缺失的额度、上下文、行数显示未知，不冒充零，也不沿用 Claude 数据。
+- 旧数据按原有时效提示显示过期。费用与其它指标仍可通过旧通用协议推送。
 
-**完整图文制作指南** → **[`docs/build-guide.html`](docs/build-guide.html)**（康奈尔笔记 + 分镜，浏览器直接打开：引脚总表 / 焊接 / 接线 / 调 5V / 刷机 / 排障 / 多工具）。
+## 本机启动
 
-最短路径：
+本机原有 `io.cchud.daemon` 已迁移到当前仓库，保留登录启动与自动保活，并已实测 BLE 连接成功。服务运行时不要重复启动终端 daemon。以下命令用于首次配置或手动调试。
 
-1. **焊屏**：屏 8 线接主板（VCC→3V3，**别接 5V**）
-2. **焊电源**：电池→TP4056→开关→MT3608，**先单独调好 5.0V** 再接主板
-3. **焊灯环**：DIN 经 470Ω → 主板 D2(GPIO5)；VCC → MT3608 IN+（开关后 3.7V）；470µF 跨 VCC/GND
-4. **刷固件**：USB 首刷 → 之后 WiFi OTA 秒刷
-   ```bash
-   cd firmware
-   pio run -e esp32s3_nano -t upload            # USB 首刷
-   pio run -e esp32s3_nano_wifi -t upload       # 之后 WiFi 秒刷
-   ```
-5. **配电脑**（目录 `host/`，下面命令都在这个目录里跑）
+依赖 Python 3.13。首次配置：
 
-   电脑在这套系统里是"中间人"：读 AI 的状态/额度 → 通过蓝牙推给盒子。核心是一个常驻后台进程 **daemon**，它**独占一条蓝牙连接**，把多个 AI 会话的状态聚合后推给设备。按 ①→⑤ 配一遍即可。
-
-   **① 建 Python 环境**
-   ```bash
-   python3.12 -m venv .venv && .venv/bin/pip install bleak
-   ```
-   - `venv` 是隔离的 Python 环境，依赖只装进 `host/.venv/`，不污染系统 Python；`bleak` 是跟蓝牙设备通信的库。
-   - **为什么必须 Python ≥ 3.10**：daemon 启动时会建一个"蓝牙发送队列"，Python 3.9 会把这个队列错绑到旧的事件循环上，导致 daemon 一跑就满屏 `attached to a different loop`、蓝牙完全发不出去；3.10 起改了这个行为才正常。没有 3.12 就 `brew install python@3.12`。
-
-   **② 找设备地址，存成环境变量**
-   ```bash
-   .venv/bin/python push_quota.py --discover          # 列出附近设备，记下你盒子的 UUID
-   echo 'export CCHUD_ADDR=<上一步的UUID>' >> ~/.zshrc && source ~/.zshrc
-   ```
-   - macOS 上蓝牙设备没有固定 MAC，只有系统分配的一串 UUID，所有推送都要靠它指明"发给哪个盒子"。
-   - **为什么写进 `~/.zshrc`、不改脚本**：地址放进环境变量后，仓库脚本保持原样——`git pull` 不冲突，也不会把你的设备地址提交进代码。之后每个命令都用 `$CCHUD_ADDR` 引用它。
-
-   **③ 给盒子配 WiFi**（一次性，经蓝牙写入）
-   ```bash
-   .venv/bin/python push_wifi.py --address $CCHUD_ADDR --ssid 'WiFi名' --password '密码'
-   ```
-   - **为什么要联网**：盒子联网后能自动 NTP 校时、用 WiFi 秒级 OTA 刷固件、开网页面板 `http://cc-hud.local/`。不联网也能用蓝牙，但这些功能没了。
-
-   **④ 装 hooks**（让 AI 自动上报状态）
-   ```bash
-   CCHUD_ADDR=$CCHUD_ADDR CCHUD_USE_V7=1 .venv/bin/python -m cchud_daemon.cli install claude
-   CCHUD_ADDR=$CCHUD_ADDR CCHUD_USE_V7=1 .venv/bin/python -m cchud_daemon.cli install codex
-   ```
-   - **hook** = AI 工具在关键时刻（开始思考、调工具、等你确认、结束）自动运行的小脚本，这里就是把状态投给 daemon。
-   - 两条命令分别给 Claude Code 和 Codex 各装一套，会自动写进它们各自的配置并**保留你已有的第三方 hook**；`CCHUD_USE_V7=1` 表示用新版 v7 协议（配最新固件）。
-
-   **⑤ 起常驻 daemon**
-   ```bash
-   CCHUD_ADDR=$CCHUD_ADDR CCHUD_USE_V7=1 .venv/bin/python -m cchud_daemon.cli daemon
-   ```
-   - 保持这个终端窗口开着，它就一直把状态推给盒子；终端没刷出错误 = 正常。
-   - **为什么必须在普通终端跑、不能用 launchd 开机自启**：macOS 的蓝牙权限按"谁启动了这个进程"授权——普通终端有授权，而 launchd 拉起的后台进程拿不到、还不弹授权框，会静默报 `BLE is not authorized`。想保活可以用 tmux 或 `nohup`。
-
-   **Codex 额外两点**
-   - 装完 hooks 要**重启 Codex**，启动时会弹"是否信任 hooks"，选 **Trust all and continue**——新版 Codex 不信任就不跑 hook。
-   - ⚠️ **千万别往 `~/.codex/config.toml` 写 `hooks = true`**：新版 Codex 会报 `expected struct HooksToml` 直接起不来。`~/.codex/hooks.json` 是自动加载的，不需要这行。
-
-   > 状态栏渲染用 `ccstatusline`；本机没装 `bun` 的话，把 `cchud-statusline.sh` 里的 `bunx` 改成 `npx`。完整步骤 / 排错见 [`host/DAEMON.md`](host/DAEMON.md)。
-
----
-
-## 多 AI 工具
-
-| 工具 | 显示 | 接法 |
-|---|---|---|
-| **Claude Code** | 完整：额度 + 上下文 + 成本 + 4 状态灯 + 多会话 | `cchud_daemon.cli install claude`（写 `hooks` + `statusLine`，保留第三方） |
-| **Codex CLI** | 状态 + 多会话（思考/工具/等待/空闲） | `cchud_daemon.cli install codex`（写 `~/.codex/hooks.json`，重启 Codex 后 **Trust hooks**；**勿写 `hooks=true`**） |
-| 其它 | 任意脚本调 `push_state.py` 推状态/灯色 | 通用 CLI |
-
----
-
-## 目录结构
-
-```
-firmware/        ESP32-S3 固件（PlatformIO · LVGL 9 · NimBLE）
-  src/
-    main.cpp           主循环 + 状态聚合 + NTP + 省电
-    led_ring.*         24 灯环状态灯
-    wifi_ota.*         WiFi OTA + 网页面板
-    lvgl_ui.*          4 屏 UI
-    display.* ble_server.* persistence.* battery.* button.*
-host/            电脑端 Python + shell
-  push_wifi.py / push_state.py / push_quota.py / push_idle.py / ota.py
-  cchud-hook.sh / cchud-update.sh / cchud-idle.sh   (Claude Code)
-  cchud-codex-notify.sh / cchud-codex-dispatch.sh   (Codex)
-docs/build-guide.html  完整图文制作指南
-README.en.md           英文原版说明（upstream）
+```bash
+uv venv host/.venv --python 3.13
+uv pip install --python host/.venv/bin/python -r host/requirements.txt pytest pytest-asyncio
+host/.venv/bin/python host/push_quota.py --discover
 ```
 
----
+将设备地址保存到不提交 Git 的 `host/.env` ：
 
-*基于 [uk0/cc_hud_esp32](https://github.com/uk0/cc_hud_esp32)。本 fork 增强见上。*
+```bash
+CCHUD_ADDR=你的设备UUID
+CCHUD_USE_V7=1
+# 可选：CCHUD_WEATHER_CITY=杭州
+```
+
+安装状态 hooks：
+
+```bash
+cd host
+.venv/bin/python -m cchud_daemon.cli install codex
+```
+
+安装会保留第三方 hooks。Codex 要求用户信任新 hook 定义：重启后按提示确认，或在 CLI 中用 `/hooks` 审阅。不要设置 `hooks = true`，也不要绕过信任校验。行为依据 [OpenAI 官方 Hooks 文档](https://developers.openai.com/codex/hooks) 。
+
+从有蓝牙权限的终端启动：
+
+```bash
+./host/start-codex-hud.sh
+```
+
+需要后台运行时：
+
+```bash
+mkdir -p .local-backup
+nohup ./host/start-codex-hud.sh > .local-backup/daemon.log 2>&1 &
+```
+
+同一设备只运行一个 daemon。启动会申请进程锁；调试或 OTA 前，先停止明确属于该项目的 daemon。macOS 的 launchd 蓝牙授权与交互终端可能不同，因此通用安装器不自动创建或启动服务；本次迁移沿用并验证了本机已有的后台服务。
+
+## 固件构建与升级
+
+```bash
+cd firmware
+pio test -e native
+pio run -e esp32s3_nano
+# USB 首刷
+pio run -e esp32s3_nano -t upload
+# 已配 WiFi 时
+pio run -e esp32s3_nano_wifi -t upload
+```
+
+BLE OTA：
+
+```bash
+host/.venv/bin/python host/ota.py \
+  --address 你的设备UUID \
+  --firmware firmware/.pio/build/esp32s3_nano/firmware.bin \
+  --chunk 244 --verbose
+```
+
+OTA 必须收到设备 `OK` 才记为传输成功；重启后读取 `12345678-aaaa-bbbb-cccc-1234567890a3` 固件版本，再进行真机验收。保留原始固件用于回滚，勿以“全部字节已发送”替代升级成功。
+
+## 开发与验证
+
+```bash
+cd host
+.venv/bin/python -m pytest -q
+```
+
+图标为代码生成的终端风格资源：
+
+```bash
+uv pip install --python host/.venv/bin/python pillow
+host/.venv/bin/python firmware/tools/generate_codex_assets.py
+```
+
+中文字体的可复现 `lv_font_conv` 参数保存在 `firmware/src/font_cn_20.c` 文件头。新增屏幕文字时必须同步字体子集。
+
+| 目录 | 内容 |
+|---|---|
+| `host/cchud_daemon/` | hooks、会话聚合、Codex 日志用量采集、BLE 连接 |
+| `firmware/src/` | LVGL 界面、协议、灯环、电池、按钮、WiFi 和 OTA |
+| `firmware/tools/` | 图标生成脚本与预览 |
+| `docs/build-guide.html` | 原有硬件制作与接线指南；其中 Claude 安装说明属于历史版本 |
+| `AGENTS.md` | 当前项目开发约定 |
+
+硬件仍为 ESP32-S3-Nano、1.54 英寸 ST7789、24 位 WS2812B 灯环；可选电池监测和按钮。接线与电源要求未改变。
+
+## 实时状态与界面验证
+
+```bash
+cd host
+.venv/bin/python -m cchud_daemon.cli status
+```
+
+输出包括主机会话信息与 `device_work`，后者是设备实际已接收的首个会话快照，不能等同用户手动选中的页面。工作快照按代次完整替换，尚未发送的快照只保留最新一份。
+
+可以直接编译实际 LVGL 代码进行离屏渲染，不用另做近似网页：
+
+```bash
+cmake -S firmware/tools/ui-preview -B /tmp/cchud-ui-preview -DCMAKE_BUILD_TYPE=Release
+cmake --build /tmp/cchud-ui-preview -j 8
+cd /tmp/cchud-ui-preview
+./hud-preview
+```
+
+输出工作、等待、多会话与时钟的 PPM 图像，使用示例数据验证布局。主字体包含约 3758 个常用中文字形，罕用字需扩充字库。

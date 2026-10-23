@@ -133,3 +133,61 @@ def encode_v7(fields: list[tuple[int, bytes]]) -> bytes:
             raise ValueError(f"tag 0x{tag:02X} value too long: {len(value)}")
         out += bytes([tag & 0xFF, len(value)]) + value
     return bytes(out)
+
+# 工作页扩展；每条会话独立成帧，最多 8 条，以代次号原子替换。
+TAG_WORK_ENTRY = 0x62
+TAG_WORK_GENERATION = 0x63
+TAG_WORK_COUNT = 0x64
+TAG_WORK_ENTRY_V2 = 0x65
+PHASE_CODE = {"idle": 0, "thinking": 1, "command": 2, "edit": 3,
+              "read": 4, "search": 5, "mcp": 6, "tool": 7,
+              "approval": 8, "question": 9, "test": 10, "plan": 11, "review": 12, "unknown": 13}
+
+
+def utf8_bytes(value: str, limit: int) -> bytes:
+    return (value or "").encode("utf-8", errors="replace")[:limit].decode("utf-8", errors="ignore").encode("utf-8")
+
+
+def encode_work_frames(rows: list[dict], generation: int) -> list[bytes]:
+    rows = rows[:8]
+    common = [tlv_u32(TAG_WORK_GENERATION, generation), tlv_u8(TAG_WORK_COUNT, len(rows))]
+    if not rows:
+        return [encode_v7(common)]
+    frames = []
+    for index, row in enumerate(rows):
+        flags = int(bool(row.get("time_known"))) | (int(bool(row.get("plan_known"))) << 1)
+        ctx = row.get("ctx_pct")
+        if ctx is not None: flags |= 4
+        value = struct.pack("<BIBBBBBIBB", index, row["key"], row.get("client_id", 1),
+                            STATE_CODE.get(row["state"], 0), KIND_CODE.get(row.get("kind"), 0),
+                            PHASE_CODE.get(row.get("phase"), 7), flags,
+                            min(0xFFFFFFFF, row.get("elapsed", 0)),
+                            min(255, row.get("plan_done", 0)), min(255, row.get("plan_total", 0)))
+        for key, limit in (("project", 48), ("model", 32), ("effort", 12), ("detail", 24), ("step", 48)):
+            text = utf8_bytes(row.get(key, ""), limit)
+            value += bytes([len(text)]) + text
+        value += bytes([max(0,min(100,ctx)) if ctx is not None else 255,
+                        min(255,max(0,row.get("pending_questions",0)))])
+        frame = encode_v7(common + [(TAG_WORK_ENTRY_V2, value)])
+        assert len(frame) <= 244
+        frames.append(frame)
+    return frames
+
+
+def decode_work_readback(data: bytes) -> dict:
+    if data == b'\x00': return {'count': 0}
+    if len(data) < 19: raise ValueError('设备工作回读长度不足')
+    count,state,phase,done,total,flags,key,elapsed = struct.unpack_from('<BBBBBBII',data)
+    result=dict(count=count,state=state,phase=phase,plan_done=done,plan_total=total,flags=flags,key=key,elapsed=elapsed)
+    pos=14
+    for name in ('project','model','effort','detail','step'):
+        if pos>=len(data): raise ValueError('设备工作回读字段缺失')
+        n=data[pos];pos+=1
+        if pos+n>len(data): raise ValueError('设备工作回读字段越界')
+        result[name]=data[pos:pos+n].decode('utf8');pos+=n
+    result.update(ctx_pct=None,pending_questions=0)
+    if len(data)==pos+2:
+        result.update(ctx_pct=data[pos] if data[pos]<=100 else None,pending_questions=data[pos+1])
+        pos+=2
+    if pos!=len(data): raise ValueError('设备工作回读尾部异常')
+    return result

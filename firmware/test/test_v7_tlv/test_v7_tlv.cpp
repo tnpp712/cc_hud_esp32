@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <cstddef>
 #include "v7_tlv.h"
+#include "quota_gauge.h"
+#include "work_frame_fixture.h"
 
 using namespace cc_hud;
 
@@ -62,6 +64,72 @@ void test_parse_session_list() {
     TEST_ASSERT_EQUAL_STRING("codex", f.sessions[1].title);
 }
 
+void test_metrics_valid_and_legacy_default() {
+    const uint8_t buf[] = {0x0B,0,0,1, 0x0C,1,22, 0x03,1,7};
+    V7Fields f{};
+    TEST_ASSERT_EQUAL(V7_OK, parseV7Tlv(buf, sizeof(buf), f));
+    TEST_ASSERT_TRUE(f.has_metrics_valid);
+    TEST_ASSERT_EQUAL_UINT8(22, f.metrics_valid);
+    TEST_ASSERT_EQUAL_UINT8(7, f.seven_d_used);
+    V7Fields legacy{};
+    TEST_ASSERT_EQUAL_UINT8(63, legacy.metrics_valid);
+}
+
+void test_work_frames_are_atomic_and_metadata_matches() {
+    V7Fields a{},b{};
+    TEST_ASSERT_EQUAL(V7_OK,parseV7Tlv(kWorkFrame0,sizeof(kWorkFrame0),a));
+    TEST_ASSERT_EQUAL(V7_OK,parseV7Tlv(kWorkFrame1,sizeof(kWorkFrame1),b));
+    TEST_ASSERT_EQUAL_STRING("项目",a.work.project);
+    TEST_ASSERT_EQUAL_STRING("model",a.work.model);
+    TEST_ASSERT_EQUAL_STRING("检查",a.work.step);
+    TEST_ASSERT_EQUAL_UINT32(65,a.work.elapsed_s);
+    WorkAssembler assembler; WorkSession rows[kMaxWorkSessions]; uint8_t count=0;
+    TEST_ASSERT_FALSE(assembler.accept(42,2,&b.work,rows,count));
+    TEST_ASSERT_EQUAL_UINT8(0,count);
+    TEST_ASSERT_TRUE(assembler.accept(42,2,&a.work,rows,count));
+    TEST_ASSERT_EQUAL_UINT8(2,count);
+    TEST_ASSERT_EQUAL_UINT32(17,rows[0].key);
+    TEST_ASSERT_EQUAL_UINT8(3,rows[1].state);
+    TEST_ASSERT_FALSE(assembler.accept(42,2,&a.work,rows,count));
+    TEST_ASSERT_TRUE(assembler.accept(43,0,nullptr,rows,count));
+    TEST_ASSERT_EQUAL_UINT8(0,count);
+}
+void test_work_rejects_truncated_fields_and_mixed_generation() {
+    V7Fields f{};
+    TEST_ASSERT_EQUAL(V7_ERR_LEN,parseV7Tlv(kWorkFrame0,sizeof(kWorkFrame0)-1,f));
+    WorkAssembler assembler; WorkSession rows[kMaxWorkSessions],a,b; uint8_t count=0;
+    a.index=0;a.key=100;b.index=1;b.key=200;
+    TEST_ASSERT_FALSE(assembler.accept(1,2,&a,rows,count));
+    TEST_ASSERT_FALSE(assembler.accept(2,2,&b,rows,count));
+    TEST_ASSERT_EQUAL_UINT8(0,count);
+    a.key=300;
+    TEST_ASSERT_TRUE(assembler.accept(2,2,&a,rows,count));
+    TEST_ASSERT_EQUAL_UINT32(300,rows[0].key);
+}
+void test_gauge_means_remaining() {
+    TEST_ASSERT_EQUAL_UINT8(24,remainingPixels(0,24));
+    TEST_ASSERT_EQUAL_UINT8(18,remainingPixels(25,24));
+    TEST_ASSERT_EQUAL_UINT8(0,remainingPixels(100,24));
+    TEST_ASSERT_EQUAL_UINT8(0,remainingPixels(255,24));
+}
+void test_work_v2_keeps_activity_and_pending_separate() {
+    V7Fields f{};
+    TEST_ASSERT_EQUAL(V7_OK,parseV7Tlv(kWorkFrameV2,sizeof(kWorkFrameV2),f));
+    TEST_ASSERT_EQUAL_UINT8(2,f.work.state);
+    TEST_ASSERT_EQUAL_UINT8(2,f.work.phase);
+    TEST_ASSERT_EQUAL_UINT8(37,f.work.ctx_pct);
+    TEST_ASSERT_EQUAL_UINT8(2,f.work.pending_questions);
+    uint8_t data[200];size_t size=workReadback(&f.work,1,data);
+    TEST_ASSERT_EQUAL_UINT8(37,data[size-2]);
+    TEST_ASSERT_EQUAL_UINT8(2,data[size-1]);
+}
+void test_work_v2_rejects_invalid_context() {
+    uint8_t data[sizeof(kWorkFrameV2)];
+    std::memcpy(data,kWorkFrameV2,sizeof(data));data[sizeof(data)-2]=101;
+    V7Fields f{};
+    TEST_ASSERT_EQUAL(V7_ERR_LEN,parseV7Tlv(data,sizeof(data),f));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_parse_known_tags);
@@ -70,5 +138,11 @@ int main(int, char**) {
     RUN_TEST(test_fragment_rejected);
     RUN_TEST(test_parse_intervention_kind);
     RUN_TEST(test_parse_session_list);
+    RUN_TEST(test_metrics_valid_and_legacy_default);
+    RUN_TEST(test_work_frames_are_atomic_and_metadata_matches);
+    RUN_TEST(test_work_rejects_truncated_fields_and_mixed_generation);
+    RUN_TEST(test_gauge_means_remaining);
+    RUN_TEST(test_work_v2_keeps_activity_and_pending_separate);
+    RUN_TEST(test_work_v2_rejects_invalid_context);
     return UNITY_END();
 }

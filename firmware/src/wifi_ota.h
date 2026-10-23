@@ -40,8 +40,8 @@ void wifiOtaSetEnabled(bool enabled);
 // Live snapshot published to the WiFi dashboard (http://cc-hud.local/).
 // main.cpp fills one each loop; the HTTP handlers format it on demand.
 struct WebStatus {
+    uint8_t metrics_valid = 0;
     char     title[33]   = {0};
-    uint8_t  pct5        = 0;
     uint8_t  pct7        = 0;
     uint8_t  ctx         = 0;
     uint32_t cost_micro  = 0;

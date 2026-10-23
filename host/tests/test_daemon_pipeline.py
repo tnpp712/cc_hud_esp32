@@ -49,3 +49,36 @@ async def test_stale_session_self_heals_to_idle():
     t["v"] = 1400.0                       # 超 TTL(300s)
     await d._emit_state(t["v"])
     assert ble.sent[-1][1] == 0          # 自愈为 idle
+
+
+@pytest.mark.asyncio
+async def test_codex_completion_does_not_hide_another_busy_session():
+    ble = SpyBle()
+    d = Daemon("addr", "/tmp/x.sock", ble=ble)
+    await d.on_events([CcHudEvent(1, "other", "state", state="thinking")])
+    await d.on_events([CcHudEvent(1, "one", "state", state="idle", detail="turn-complete")])
+    assert ble.sent[-1][1] == 1
+    await d.on_events([CcHudEvent(1, "other", "state", state="idle", detail="turn-complete")])
+    assert ble.sent[-1][1] == 4
+
+
+@pytest.mark.asyncio
+async def test_codex_missing_quota_does_not_reuse_claude_values():
+    ble = SpyBle()
+    ble.use_v7 = True
+    t = {"v": 1000.0}
+    d = Daemon("addr", "/tmp/x.sock", ble=ble, now=lambda: t["v"])
+    await d.on_events([CcHudEvent(0, "old", "quota", five_h_used=99,
+                                  five_h_resets_at=2000)])
+    t["v"] += 40
+    await d.on_events([CcHudEvent(1, "new", "quota", seven_d_used=7,
+                                  metrics_valid=2, title="Codex")])
+    data = ble.sent[-1]
+    tags = {}
+    i = 4
+    while i < len(data):
+        tag, size = data[i:i+2]
+        tags[tag] = data[i+2:i+2+size]
+        i += 2 + size
+    assert 1 not in tags and 2 not in tags and tags[3] == b"\x07"
+    assert tags[12] == b"\x02"

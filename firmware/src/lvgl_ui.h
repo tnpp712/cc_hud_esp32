@@ -20,6 +20,9 @@
 namespace cc_hud {
 
 struct LvglUiModel {
+    WorkSession work[kMaxWorkSessions];
+    uint8_t work_count = 0;
+    uint64_t work_capture_ms = 0;
     QuotaSnapshot quota;          // latest quota + idle-time fields
     bool          ble_connected = false;
     bool          idle_mode     = false;   // true → clock screen
