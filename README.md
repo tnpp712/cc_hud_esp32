@@ -2,7 +2,7 @@
 
 把 Codex 的运行状态、额度、上下文和会话统计显示在 ESP32-S3 桌面设备上。主机通过 BLE 常驻连接，固件驱动 240×240 彩屏和 24 颗灯环。
 
-基于 [uk0/cc_hud_esp32](https://github.com/uk0/cc_hud_esp32) 的私有 fork，2026-10-23 将默认客户端、图标、思考动画、文字和配色改为 Codex。按用户要求移除 5H 额度及相关预警。原有 BLE UUID、NVS 命名空间、WiFi 配置与 `cc-hud.local` 地址保持兼容；旧协议中的 5H 字段仅作为兼容占位，不参与显示、预警、灯环或宠物状态。
+基于 [uk0/cc_hud_esp32](https://github.com/uk0/cc_hud_esp32) 的 fork，2026-10-23 将默认客户端、图标、思考动画、文字和配色改为 Codex。按用户要求移除 5H 额度及相关预警。原有 BLE UUID、NVS 命名空间、WiFi 配置与 `cc-hud.local` 地址保持兼容；旧协议中的 5H 字段仅作为兼容占位，不参与显示、预警、灯环或宠物状态。
 
 ## 功能
 
