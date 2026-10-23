@@ -92,3 +92,28 @@ def test_session_end_clears_all_questions_and_new_question_can_reopen(tmp_path):
     assert restored.count('s')==0
     begin(restored,turn='resumed');ask(restored,cid='fresh',ts=7);accepted(restored,cid='fresh')
     assert restored.count('s')==1
+
+
+def test_new_turn_plain_reply_expires_previous_prompt_without_affecting_other_session():
+    q=QuestionTracker();begin(q);ask(q);accepted(q)
+    begin(q,sid='other');ask(q,sid='other');accepted(q,sid='other')
+    begin(q,turn='next')
+    assert q.count('s')==1  # 单独开始轮次还不代表已收到用户输入。
+    q.ingest('s',{'type':'response_item','payload':{'type':'message','role':'user',
+        'content':[{'text':'确认推送到该公开仓'}]}},6)
+    assert q.count('s')==0 and q.count('other')==1
+    accepted(q)  # 迟到的提交回执不能复活旧提醒。
+    assert q.count('s')==0
+    ask(q,cid='new',ts=7);accepted(q,cid='new')
+    assert q.ids('s')==['new:0']
+
+
+def test_new_turn_structured_partial_reply_and_environment_keep_other_questions():
+    q=QuestionTracker();begin(q);ask(q,count=2);accepted(q)
+    begin(q,turn='next')
+    for text in ('# AGENTS.md instructions for /repo\n规则', '<environment_context>环境</environment_context>'):
+        q.ingest('s',{'type':'response_item','payload':{'type':'message','role':'user',
+            'content':[{'text':text}]}},4)
+    assert q.count('s')==2
+    reply(q,index=0)
+    assert q.ids('s')==['call:1']

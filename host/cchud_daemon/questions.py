@@ -9,6 +9,15 @@ TOOLS = {'request_user_input', 'request_user_input_async'}
 _REPLY = re.compile(r'<send_user_message_question_reply>\s*(.*?)\s*</send_user_message_question_reply>', re.S)
 
 
+def _ordinary_user_input(text):
+    """排除平台注入的工作区说明，避免把环境更新当成用户回复。"""
+    text = text.strip()
+    return bool(text) and not text.startswith((
+        '# AGENTS.md instructions', '<environment_context>',
+        '<permissions instructions>', '<INSTRUCTIONS>',
+    )) and '<send_user_message_question_reply>' not in text
+
+
 class QuestionTracker:
     def __init__(self, closure_path: Path | None = None):
         self.calls = {}
@@ -104,6 +113,13 @@ class QuestionTracker:
                 else:calls.pop(cid,None)
             elif kind=='message' and p.get('role')=='user':
                 text=''.join(c.get('text','') for c in p.get('content',[]) if isinstance(c,dict))
+                turn = self.turns.get(sid)
+                if turn and _ordinary_user_input(text):
+                    # 新一轮普通输入使旧轮次的提示过期，不猜测回答内容。
+                    # 同轮追问和带问题 ID 的部分回答继续保留其余问题。
+                    for cid in list(calls):
+                        if calls[cid]['turn'] and calls[cid]['turn'] != turn:
+                            calls.pop(cid)
                 for match in _REPLY.finditer(text):
                     try: replies=json.loads(match.group(1))
                     except ValueError: continue
