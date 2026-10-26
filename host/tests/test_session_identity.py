@@ -60,6 +60,30 @@ def test_same_project_identity_survives_new_turn_and_sort():
     assert s.work_rows(104)[0]['session_title']==''
 
 
+def test_sidebar_name_wins_over_first_message_and_rename_is_detected(tmp_path):
+    now = datetime.now(timezone.utc)
+    clock = [now.timestamp()]
+    folder = tmp_path/'sessions';folder.mkdir()
+    path = folder/'thread.jsonl'
+    rows=[{'type':'session_meta','payload':{'id':'s'}},
+          {'type':'turn_context','payload':{'turn_id':'t','cwd':'/repo/project','model':'model'}}]
+    path.write_text(''.join(json.dumps({**r,'timestamp':now.isoformat()})+'\n' for r in rows))
+    c=sqlite3.connect(tmp_path/'state_5.sqlite')
+    c.execute('create table threads (rollout_path text,title text,name text,archived integer,updated_at integer)')
+    c.execute('insert into threads values (?,?,?,0,?)',
+              (str(path),'这是很长的首条用户消息','评估福利看板指标数据支持',int(clock[0])))
+    c.commit()
+    reader=CodexUsageReader(tmp_path,now=lambda:clock[0])
+    first=reader.poll()[0];code=first.short_id
+    assert first.session_title=='评估福利看板指标数据支持'
+    c.execute('update threads set name=?',('更新假期看板进展与待办',));c.commit();clock[0]+=31
+    renamed=reader.poll()[0]
+    assert renamed.session_title=='更新假期看板进展与待办' and renamed.short_id==code
+    c.execute('update threads set name=NULL');c.commit();clock[0]+=31
+    assert reader.poll()[0].session_title=='这是很长的首条用户消息'
+    c.close()
+
+
 def test_new_readback_preserves_identity_and_unknown_title():
     import struct
     raw=struct.pack('<BBBBBBII',1,2,2,0,0,4,17,65)

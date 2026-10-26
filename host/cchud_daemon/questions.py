@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 from threading import RLock
+from .activity import brief
 
 TOOLS = {'request_user_input', 'request_user_input_async'}
 _REPLY = re.compile(r'<send_user_message_question_reply>\s*(.*?)\s*</send_user_message_question_reply>', re.S)
@@ -39,6 +40,14 @@ class QuestionTracker:
         with self.lock:
             return sorted(f'{cid}:{i}' for cid,c in self.calls.get(sid,{}).items()
                           if c['accepted'] for i in c['open'])
+
+    def attention(self, sid):
+        with self.lock:
+            for call in self.calls.get(sid,{}).values():
+                if call['accepted'] and call['open']:
+                    index=min(call['open'])
+                    return call.get('titles',{}).get(index,'请在 Codex 回答问题')
+        return ''
 
     def reset(self, sid):
         with self.lock:
@@ -98,7 +107,9 @@ class QuestionTracker:
                 if not isinstance(questions,list) or not questions: return
                 if cid not in calls:
                     calls[cid]={'turn':turn,'async':name.endswith('_async'),
-                                'accepted':not name.endswith('_async'),'open':set(range(len(questions)))}
+                                'accepted':not name.endswith('_async'),'open':set(range(len(questions))),
+                                'titles':{i:brief(q.get('question') or q.get('title')) or '请在 Codex 回答问题'
+                                          for i,q in enumerate(questions) if isinstance(q,dict)}}
             elif kind in ('function_call_output','custom_tool_call_output'):
                 cid=p.get('call_id');call=calls.get(cid)
                 if not call:return

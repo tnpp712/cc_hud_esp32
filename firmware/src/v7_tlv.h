@@ -32,6 +32,7 @@ enum V7Tag : uint8_t {
     kV7TagWorkCount        = 0x64,
     kV7TagWorkEntryV2      = 0x65,
     kV7TagWorkEntryV3      = 0x66,
+    kV7TagWorkNote         = 0x67,
 };
 
 // 会话列表单条(第 4 层)
@@ -51,6 +52,7 @@ struct V7Fields {
     uint32_t work_generation = 0;
     uint8_t work_count = 0;
     WorkSession work;
+    bool has_work_note=false; WorkNote note;
     bool has_metrics_valid = false; uint8_t metrics_valid = 0x3F;
     bool     has_five_h_used    = false;  uint8_t  five_h_used     = 0;
     bool     has_five_h_reset   = false;  uint32_t five_h_reset_s  = 0;

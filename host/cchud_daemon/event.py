@@ -27,6 +27,7 @@ class CcHudEvent:
     metrics_valid: int | None = None
     turn_id: str | None = None
     project: str | None = None
+    project_name: str | None = None
     session_title: str | None = None
     short_id: str | None = None
     model: str | None = None
@@ -40,3 +41,7 @@ class CcHudEvent:
     pending_questions: int | None = None
     question_ids: list[str] | None = None
     question_cancelled: bool = False
+    progress: str | None = None
+    attention: str | None = None
+    result: str | None = None
+    outcome: int | None = None

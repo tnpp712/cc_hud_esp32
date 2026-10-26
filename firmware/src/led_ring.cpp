@@ -22,13 +22,13 @@ uint8_t  g_gauge_pct = 0;     // last quota % rendered by the gauge
 uint8_t  g_brightness = kLedRingBrightness;  // night-dim scaled brightness
 uint32_t g_pulse_until = 0;   // while millis() < this, the done-pulse owns the ring
 
-constexpr uint32_t kPulseMs = 1800;   // total done-pulse duration
+constexpr uint32_t kPulseMs = 1200;   // total done-pulse duration
 
 // Tier colour for the ambient gauge, mirrors the screen's tierColor().
 uint32_t gaugeColor(uint8_t pct) {
     if (pct <= kThreshGreenMax)  return g_ring.Color(0, 255, 0);
     if (pct <= kThreshYellowMax) return g_ring.Color(255, 255, 0);
-    return g_ring.Color(255, 0, 0);
+    return g_ring.Color(230, 125, 0);
 }
 
 // 亮灯颗数表示剩余额度；已用比例仍决定绿、黄、红颜色。
@@ -76,7 +76,8 @@ void ledRingShowGauge(uint8_t pct) {
 }
 
 void ledRingSetMode(LedMode mode) {
-    if (millis() < g_pulse_until) return;   // done-pulse owns the ring
+    if(mode==kLedModeWaiting || mode==kLedModeError || mode==kLedModeBattLow)g_pulse_until=0;
+    if (millis() < g_pulse_until) return;
     if (mode == g_mode) return;
     g_mode      = mode;
     g_last_step = millis();
@@ -94,8 +95,9 @@ void ledRingSetMode(LedMode mode) {
             }
             break;
         }
-        case kLedModeWaiting: {
-            const uint32_t red = g_ring.Color(255, 0, 0);
+        case kLedModeWaiting:
+        case kLedModeError: {
+            const uint32_t red = mode==kLedModeError?g_ring.Color(180,0,0):g_ring.Color(100,55,0);
             for (uint16_t i = 0; i < kLedRingCount; i++) {
                 g_ring.setPixelColor(i, red);
             }
@@ -103,7 +105,7 @@ void ledRingSetMode(LedMode mode) {
         }
         case kLedModeWorking:
             // Comet — first frame is the head at position 0.
-            g_ring.setPixelColor(0, g_ring.Color(255, 255, 0));
+            g_ring.setPixelColor(0, g_ring.Color(18,90,65));
             break;
         case kLedModeBattLow: {
             const uint32_t orange = g_ring.Color(255, 90, 0);
@@ -127,8 +129,8 @@ void ledRingTick() {
     // mode on the next loop (we cleared g_mode in ledRingPulseDone()).
     if (now < g_pulse_until) {
         const uint32_t since = kPulseMs - (g_pulse_until - now);  // 0..kPulseMs
-        const bool on = ((since / 150u) & 1u) == 0u;              // 150ms phases
-        const uint32_t c = on ? g_ring.Color(0, 255, 0) : 0;
+        const uint32_t level=since<600?since/5:(1200-since)/5;
+        const uint32_t c=g_ring.Color(0,level,level/4);
         for (uint16_t i = 0; i < kLedRingCount; i++) g_ring.setPixelColor(i, c);
         g_ring.show();
         return;
@@ -150,13 +152,21 @@ void ledRingTick() {
                 // brightness, so "working" reads as a moving arc rather than
                 // a single bright dot with an invisible trail.
                 const uint8_t v = static_cast<uint8_t>(
-                    255 - (i * 125) / (kLedCometLen - 1));
-                g_ring.setPixelColor(idx, g_ring.Color(v, v, 0));
+                    95 - (i * 65) / (kLedCometLen - 1));
+                g_ring.setPixelColor(idx, g_ring.Color(v/5, v, v*3/4));
             }
             g_ring.show();
             break;
         }
         case kLedModeWaiting: {
+            if(now-g_last_step<40)return;
+            g_last_step=now;
+            const uint32_t phase=now%2400;
+            const uint8_t level=40+(phase<1200?phase:2400-phase)/12;
+            for(uint16_t i=0;i<kLedRingCount;++i)g_ring.setPixelColor(i,g_ring.Color(level,level*55/100,0));
+            g_ring.show();break;
+        }
+        case kLedModeError: {
             if (now - g_last_step < kLedBlinkHalfMs) return;
             g_last_step = now;
             g_blink_on  = !g_blink_on;
@@ -185,17 +195,6 @@ void ledRingTick() {
         default:
             // Static modes — nothing to advance.
             break;
-    }
-}
-
-LedMode ledRingModeForAppState(int8_t app_state) {
-    switch (app_state) {
-        case kAppStateWaiting:  return kLedModeWaiting;
-        case kAppStateTool:     return kLedModeWorking;
-        case kAppStateThinking: return kLedModeWorking;
-        case kAppStateIdle:     return kLedModeIdleDone;
-        case kAppStateUnset:
-        default:                return kLedModeOff;
     }
 }
 

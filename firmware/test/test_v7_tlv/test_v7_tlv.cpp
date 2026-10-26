@@ -1,8 +1,12 @@
 #include <unity.h>
 #include <cstdint>
 #include <cstddef>
+#include <utility>
 #include "v7_tlv.h"
 #include "quota_gauge.h"
+#include "work_navigation.h"
+#include "attention_view.h"
+#include "led_policy.h"
 #include "work_frame_fixture.h"
 
 using namespace cc_hud;
@@ -142,8 +146,89 @@ void test_work_v3_identity_and_truncation() {
     TEST_ASSERT_EQUAL(V7_ERR_LEN,parseV7Tlv(kWorkFrameV3,sizeof(kWorkFrameV3)-1,f));
 }
 
+void test_experience_requires_all_note_parts_and_roundtrips() {
+    V7Fields base{},p{},a{},r{};
+    TEST_ASSERT_EQUAL(V7_OK,parseV7Tlv(kExperienceFrame0,sizeof(kExperienceFrame0),base));
+    TEST_ASSERT_EQUAL(V7_OK,parseV7Tlv(kExperienceFrame1,sizeof(kExperienceFrame1),p));
+    TEST_ASSERT_EQUAL(V7_OK,parseV7Tlv(kExperienceFrame2,sizeof(kExperienceFrame2),a));
+    TEST_ASSERT_EQUAL(V7_OK,parseV7Tlv(kExperienceFrame3,sizeof(kExperienceFrame3),r));
+    WorkAssembler assembler;WorkSession rows[kMaxWorkSessions];uint8_t count=0;
+    TEST_ASSERT_FALSE(assembler.accept(100,1,nullptr,rows,count,&a.note));
+    TEST_ASSERT_FALSE(assembler.accept(100,1,&base.work,rows,count));
+    TEST_ASSERT_FALSE(assembler.accept(100,1,nullptr,rows,count,&r.note));
+    TEST_ASSERT_TRUE(assembler.accept(100,1,nullptr,rows,count,&p.note));
+    TEST_ASSERT_EQUAL_STRING("确认发布范围",rows[0].attention);
+    TEST_ASSERT_EQUAL_STRING("核对指标口径",rows[0].progress);
+    TEST_ASSERT_EQUAL_UINT32(456,rows[0].result_key);
+    uint8_t data[464];auto size=noteReadback(rows,count,data);
+    TEST_ASSERT_TRUE(size<sizeof(data));TEST_ASSERT_EQUAL_UINT8(1,data[5]);
+    TEST_ASSERT_FALSE(assembler.accept(100,1,nullptr,rows,count,&p.note));
+}
+void test_navigation_holds_manual_and_auto_selection() {
+    WorkSession rows[3];rows[0].key=10;rows[0].state=2;rows[1].key=20;rows[1].state=1;rows[2].key=30;rows[2].flags=16;
+    WorkNavigation nav;
+    TEST_ASSERT_EQUAL(0,nav.update(rows,3,1000,false));
+    std::swap(rows[0],rows[1]);
+    TEST_ASSERT_EQUAL(1,nav.update(rows,3,2000,false));
+    TEST_ASSERT_EQUAL(0,nav.update(rows,3,10000,false));
+    nav.advance(rows,3,11000);TEST_ASSERT_EQUAL(kPageDetail,nav.page);
+    TEST_ASSERT_EQUAL_UINT32(rows[1].key,nav.key);TEST_ASSERT_TRUE(nav.manual);
+    rows[0].pending_questions=1;
+    TEST_ASSERT_EQUAL(1,nav.update(rows,3,90000,false));
+    nav.advance(rows,3,91000);TEST_ASSERT_EQUAL_UINT32(rows[2].key,nav.key);
+    nav.advance(rows,3,92000);TEST_ASSERT_EQUAL(kPageClock,nav.page);
+    nav.advance(rows,3,93000);TEST_ASSERT_FALSE(nav.manual);TEST_ASSERT_EQUAL(kPageDetail,nav.page);
+    TEST_ASSERT_EQUAL(0,nav.update(rows,3,93001,false));
+}
+void test_direct_navigation_empty_removed_and_idle_result() {
+    WorkSession rows[1];rows[0].key=10;rows[0].flags=16;
+    WorkNavigation nav;nav.advance(rows,0,1000);TEST_ASSERT_EQUAL(kPageClock,nav.page);
+    nav.advance(rows,1,2000);TEST_ASSERT_EQUAL(0,nav.update(rows,1,2001,true));
+    TEST_ASSERT_EQUAL(kPageDetail,nav.page);
+    nav.manual=true;nav.key=99;
+    TEST_ASSERT_EQUAL(0,nav.update(rows,1,4000,false));
+    TEST_ASSERT_EQUAL_UINT32(10,nav.key);
+    nav.update(rows,0,5000,true);TEST_ASSERT_EQUAL(kPageClock,nav.page);
+}
+void test_attention_labels_separate_questions_approvals_and_errors() {
+    WorkSession rows[3];rows[0].state=2;rows[0].phase=2;rows[0].pending_questions=2;
+    rows[1].state=3;rows[1].kind=1;rows[2].state=3;rows[2].kind=3;
+    TEST_ASSERT_EQUAL_STRING("待回答",attentionTitle(attentionKind(rows[0])));
+    TEST_ASSERT_EQUAL_UINT8(2,rows[0].state);
+    TEST_ASSERT_EQUAL_STRING("待审批",attentionTitle(attentionKind(rows[1])));
+    TEST_ASSERT_EQUAL_STRING("执行失败",attentionTitle(attentionKind(rows[2])));
+    auto counts=attentionCounts(rows,3);char text[128];counts.format(text,sizeof(text));
+    TEST_ASSERT_EQUAL_STRING("错误 1  待审批 1  待回答 2",text);
+    rows[0].pending_questions=0;
+    TEST_ASSERT_EQUAL(kAttentionNone,attentionKind(rows[0]));
+    TEST_ASSERT_EQUAL_UINT32(0,attentionCounts(rows,3).questions);
+    rows[0].state=3;TEST_ASSERT_EQUAL_STRING("需查看",attentionTitle(attentionKind(rows[0])));
+}
+void test_result_card_is_shown_once_and_waiting_has_priority() {
+    WorkSession rows[2];rows[0].key=1;rows[0].state=2;rows[1].key=2;rows[1].outcome=1;rows[1].ended_at=123;rows[1].result_key=456;
+    WorkNavigation nav;
+    TEST_ASSERT_EQUAL(1,nav.update(rows,2,1000,false));
+    TEST_ASSERT_EQUAL(1,nav.update(rows,2,10000,false));
+    TEST_ASSERT_EQUAL(0,nav.update(rows,2,22000,false));
+    TEST_ASSERT_EQUAL(0,nav.update(rows,2,23000,false));
+    rows[1].pending_questions=1;TEST_ASSERT_EQUAL(1,nav.update(rows,2,24000,false));
+}
+void test_led_waiting_error_and_normal_states_are_distinct() {
+    TEST_ASSERT_EQUAL(kLedModeWaiting,ledRingModeForAppState(3,2));
+    TEST_ASSERT_EQUAL(kLedModeWaiting,ledRingModeForAppState(3,1));
+    TEST_ASSERT_EQUAL(kLedModeError,ledRingModeForAppState(3,3));
+    TEST_ASSERT_EQUAL(kLedModeWorking,ledRingModeForAppState(2,0));
+    TEST_ASSERT_EQUAL(kLedModeIdleDone,ledRingModeForAppState(0,0));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_experience_requires_all_note_parts_and_roundtrips);
+    RUN_TEST(test_navigation_holds_manual_and_auto_selection);
+    RUN_TEST(test_direct_navigation_empty_removed_and_idle_result);
+    RUN_TEST(test_attention_labels_separate_questions_approvals_and_errors);
+    RUN_TEST(test_result_card_is_shown_once_and_waiting_has_priority);
+    RUN_TEST(test_led_waiting_error_and_normal_states_are_distinct);
     RUN_TEST(test_parse_known_tags);
     RUN_TEST(test_unknown_tag_skipped);
     RUN_TEST(test_len_overflow_errors);

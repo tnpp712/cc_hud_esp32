@@ -10,6 +10,8 @@ from pathlib import Path
 from .event import CcHudEvent
 from .questions import QuestionTracker
 from .session_identity import SessionIdentity
+from .project_names import ProjectNames
+from .activity import ActivityTracker
 
 
 def changed_lines(changes: dict) -> tuple[int, int] | None:
@@ -65,8 +67,11 @@ class CodexUsageReader:
     def __init__(self, home: Path, now=time.time, closure_path: Path | None = None, sources_path: Path | None = None):
         self.home, self.now = home, now
         self.questions = QuestionTracker(closure_path)
+        self.activity = ActivityTracker()
         self.identity = SessionIdentity(sources_path.with_suffix(".identities.json") if sources_path else None)
         self.titles = {}
+        self.project_names = ProjectNames(home)
+        self.cwds = {}
         self.tracked = set()
         self.sources_path = sources_path
         if sources_path:
@@ -108,6 +113,7 @@ class CodexUsageReader:
 
     def _files(self, now):
         if now - self.discovery_at >= 30:
+            self.project_names.refresh()
             files = set()
             database = self.home / "state_5.sqlite"
             if database.exists():
@@ -119,7 +125,10 @@ class CodexUsageReader:
                             paths = {r[0] for r in rows} | {str(p) for p in self.tracked}
                             if paths:
                                 placeholders = ','.join('?' for _ in paths)
-                                names = connection.execute(f'SELECT rollout_path,title FROM threads WHERE rollout_path IN ({placeholders})', tuple(paths)).fetchall()
+                                # 新版本侧边栏名称在 name；title 可能只是首条消息。
+                                # 无名称或旧索引没有 name 字段时，兼容原 title。
+                                display_name = "COALESCE(NULLIF(TRIM(name), ''), title)" if 'name' in columns else 'title'
+                                names = connection.execute(f'SELECT rollout_path,{display_name} FROM threads WHERE rollout_path IN ({placeholders})', tuple(paths)).fetchall()
                                 self.titles = {Path(p).resolve(): ' '.join((title or '').split()) for p,title in names}
                     for (value,) in rows:
                         path=Path(value).resolve()
@@ -155,6 +164,7 @@ class CodexUsageReader:
             if stat.st_size < offset:
                 offset = 0
                 self.questions.reset(self.ids.get(path,path.stem))
+                self.activity.reset(self.ids.get(path,path.stem))
                 self.metadata.pop(path,None)
                 self.started.pop(path, None)
                 self.lines.pop(path, None)
@@ -178,12 +188,15 @@ class CodexUsageReader:
                         self.ids[path] = payload.get("id", path.stem)
                     sid = self.ids.get(path, path.stem)
                     self.questions.ingest(sid,row,ts)
+                    self.activity.ingest(sid,row,ts)
                     if row.get("type") == "turn_context":
                         if payload.get("model") == "codex-auto-review":
                             self.ignored.add(path)
                             updates.pop(sid, None)
                             self.questions.reset(sid)
+                            self.activity.reset(sid)
                             break
+                        self.cwds[path] = payload.get("cwd", "")
                         meta = CcHudEvent(1, sid, "metadata", turn_id=payload.get("turn_id"),
                             project=Path(payload.get("cwd", "")).name or None,
                             model=payload.get("model"), effort=payload.get("effort"), ts=ts)
@@ -231,10 +244,15 @@ class CodexUsageReader:
             if meta and path not in self.ignored:
                 title = self.titles.get(path, '')
                 code = self.identity.code(meta.session_id)
-                identity_changed = (meta.session_title, meta.short_id) != (title, code)
+                project_name = self.project_names.name(meta.session_id, self.cwds.get(path))
+                identity_changed = (meta.session_title, meta.short_id, meta.project_name) != (title, code, project_name)
+                meta.project_name = project_name
                 meta.session_title, meta.short_id = title, code
                 if not read_any and not identity_changed:
                     continue
+                for key,value in self.activity.snapshot(meta.session_id).items():
+                    setattr(meta,key,value)
+                meta.attention = self.questions.attention(meta.session_id)
                 meta.pending_questions = self.questions.count(meta.session_id)
                 meta.question_ids = self.questions.ids(meta.session_id)
                 updates[meta.session_id] = meta

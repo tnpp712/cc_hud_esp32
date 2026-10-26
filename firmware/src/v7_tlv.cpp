@@ -39,6 +39,12 @@ V7Result parseV7Tlv(const uint8_t* buf, size_t len, V7Fields& out) {
                 if (l != 1 || v[0] > kMaxWorkSessions) return V7_ERR_LEN;
                 out.has_work_count = true; out.work_count = v[0];
                 break;
+            case kV7TagWorkNote: {
+                if(l<16 || v[0]>=kMaxWorkSessions || v[5]<1 || v[5]>3 || v[6]>3 || v[15]>144 || l!=16+v[15])return V7_ERR_LEN;
+                out.has_work_note=true;auto& n=out.note;
+                n.index=v[0];n.key=rdU32(v+1);n.part=v[5];n.outcome=v[6];n.ended_at=rdU32(v+7);n.result_key=rdU32(v+11);
+                cpyStr(n.text,sizeof(n.text),v+16,v[15]);break;
+            }
             case kV7TagWorkEntry:
             case kV7TagWorkEntryV2:
             case kV7TagWorkEntryV3: {

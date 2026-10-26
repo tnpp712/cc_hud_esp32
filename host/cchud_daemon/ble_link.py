@@ -1,9 +1,10 @@
 from __future__ import annotations
 import asyncio
 import logging
-from .codec import decode_work_readback
+from .codec import decode_work_readback, decode_note_readback
 
 QUOTA_CHAR = "12345678-aaaa-bbbb-cccc-1234567890a1"
+NOTE_READBACK_CHAR = "12345678-aaaa-bbbb-cccc-1234567890a5"
 WORK_READBACK_CHAR = "12345678-aaaa-bbbb-cccc-1234567890a4"
 _log = logging.getLogger("cchud.ble")
 
@@ -72,6 +73,9 @@ class BleLink:
                                 services = getattr(client, "services", None)
                                 if services and services.get_characteristic(WORK_READBACK_CHAR):
                                     self.device_work = decode_work_readback(bytes(await client.read_gatt_char(WORK_READBACK_CHAR)))
+                                    if services.get_characteristic(NOTE_READBACK_CHAR):
+                                        note=decode_note_readback(bytes(await client.read_gatt_char(NOTE_READBACK_CHAR)))
+                                        if note.get('key')==self.device_work.get('key'):self.device_work.update(note)
                         except asyncio.CancelledError:
                             raise
                         except Exception as exc:

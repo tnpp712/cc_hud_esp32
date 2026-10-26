@@ -43,6 +43,7 @@ class Daemon:
         self._tasks = []
         self._pending_usage = None
         self._work_key = None
+        self._completed_turns = {}
         self._work_sent = 0
         self._generation = int(self._now() * 1000) & 0xFFFFFFFF
         self._reader = CodexUsageReader(Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser(),
@@ -77,7 +78,12 @@ class Daemon:
             e.pending_questions=len(e.question_ids)
         self._store.apply(e, now)
         await self._emit_state(now)
-        if e.detail == "turn-complete" and self._store.counts(now)[1] == 0:
+        completion=(e.session_id,e.turn_id or e.ended_at)
+        fresh=e.detail=="turn-complete" and completion not in self._completed_turns
+        if fresh:
+            self._completed_turns[completion]=now
+            self._completed_turns={k:v for k,v in self._completed_turns.items() if now-v<86400}
+        if fresh and self._store.counts(now)[1] == 0:
             # 完成脉冲只在所有会话空闲时发送，不能覆盖另一会话的工作或审批状态。
             total, busy = self._store.counts(now)
             payload = (encode_v7_state(4, "", total, busy, "none")
@@ -187,6 +193,10 @@ class Daemon:
             for event in rows:
                 event.pending_questions=reader.questions.count(event.session_id)
                 event.question_ids=reader.questions.ids(event.session_id)
+                if event.pending_questions:
+                    event.attention=reader.questions.attention(event.session_id)
+                elif event.attention:
+                    event.attention=""
             return rows
         # 优先显示新鲜 Codex 快照；没有数据时明确清除旧客户端残留。
         try:

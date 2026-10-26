@@ -140,6 +140,7 @@ TAG_WORK_GENERATION = 0x63
 TAG_WORK_COUNT = 0x64
 TAG_WORK_ENTRY_V2 = 0x65
 TAG_WORK_ENTRY_V3 = 0x66
+TAG_WORK_NOTE = 0x67
 PHASE_CODE = {"idle": 0, "thinking": 1, "command": 2, "edit": 3,
               "read": 4, "search": 5, "mcp": 6, "tool": 7,
               "approval": 8, "question": 9, "test": 10, "plan": 11, "review": 12, "unknown": 13}
@@ -157,6 +158,8 @@ def encode_work_frames(rows: list[dict], generation: int) -> list[bytes]:
     frames = []
     for index, row in enumerate(rows):
         flags = int(bool(row.get("time_known"))) | (int(bool(row.get("plan_known"))) << 1)
+        flags |= 8
+        if row.get("history"): flags |= 16
         ctx = row.get("ctx_pct")
         if ctx is not None: flags |= 4
         value = struct.pack("<BIBBBBBIBB", index, row["key"], row.get("client_id", 1),
@@ -178,6 +181,11 @@ def encode_work_frames(rows: list[dict], generation: int) -> list[bytes]:
         frame = encode_v7(common + [(TAG_WORK_ENTRY_V3, value)])
         assert len(frame) <= 244
         frames.append(frame)
+        for part,name in enumerate(('progress','attention','result'),1):
+            text = utf8_bytes(row.get(name,'') or '',144)
+            note = struct.pack('<BIBBII',index,row['key'],part,min(3,max(0,row.get('outcome') or 0)),
+                               max(0,min(0xFFFFFFFF,int(row.get('ended_at') or 0))),row.get('result_key',0))
+            frames.append(encode_v7(common+[(TAG_WORK_NOTE,note+bytes([len(text)])+text)]))
     return frames
 
 
@@ -203,4 +211,19 @@ def decode_work_readback(data: bytes) -> dict:
             if pos+n > len(data): raise ValueError('设备会话标识字段越界')
             result[name] = data[pos:pos+n].decode('utf8'); pos += n
     if pos!=len(data): raise ValueError('设备工作回读尾部异常')
+    return result
+
+
+def decode_note_readback(data: bytes) -> dict:
+    if data==b'\x00': return {}
+    if len(data)<17: raise ValueError('设备卡片回读长度不足')
+    count,key,outcome,ended_at,result_key=struct.unpack_from('<BIBII',data)
+    result=dict(key=key,outcome=outcome,ended_at=ended_at,result_key=result_key)
+    pos=14
+    for name in ('progress','attention','result'):
+        if pos>=len(data): raise ValueError('设备卡片字段缺失')
+        n=data[pos];pos+=1
+        if pos+n>len(data): raise ValueError('设备卡片字段越界')
+        result[name]=data[pos:pos+n].decode('utf8');pos+=n
+    if pos!=len(data): raise ValueError('设备卡片尾部异常')
     return result

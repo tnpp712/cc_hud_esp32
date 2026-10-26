@@ -97,7 +97,9 @@ class CodexAdapter:
                         model=p.get("model") if isinstance(p.get("model"), str) else None,
                         phase=phase, plan=plan, started_at=started, ended_at=ended,
                         session_end=event == "SessionEnd", question_cancelled=event == "Interrupt",
-                        transcript_path=p.get("transcript_path"))
+                        transcript_path=p.get("transcript_path"),
+                        attention=(p.get("attention") or f"确认是否允许 {detail or tool or '当前操作'}") if kind=="approval" else None,
+                        outcome=(1 if event=="Stop" else 2) if event in ("Stop","Interrupt") else None)
         if event == "SessionEnd":
             self._calls.pop(sid, None)
             self._turns.pop(sid, None)

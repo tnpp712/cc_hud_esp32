@@ -1,6 +1,7 @@
 """只保留 HUD 需要的事件元数据，避免把命令正文或输出送入 socket。"""
 from __future__ import annotations
 import re
+from .activity import brief
 
 
 def compact_payload(payload: dict) -> dict:
@@ -10,6 +11,8 @@ def compact_payload(payload: dict) -> dict:
     tool_input = payload.get("tool_input") or {}
     if not isinstance(tool_input, dict):
         tool_input = {}
+    if isinstance(tool_input.get("justification"), str):
+        out["attention"] = brief(tool_input["justification"])
     # 只有结构化计划才进入步骤信息，命令字符串不进入上报。
     if str(payload.get("tool_name", "")).split(".")[-1] == "update_plan":
         plan = tool_input.get("plan")

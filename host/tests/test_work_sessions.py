@@ -47,8 +47,9 @@ def test_every_work_frame_fits_mtu_and_utf8_is_intact():
     row=dict(key=123,client_id=1,state='tool',kind='none',phase='command',time_known=True,plan_known=True,
              elapsed=23,plan_done=2,plan_total=4,project='项目'*40,model='model'*20,effort='high',detail='Bash',step='检查文件'*40,session_title='修复同一个项目的会话展示'*30,short_id='A'*12)
     frames=encode_work_frames([row]*8,7)
-    assert len(frames)==8
-    for index,frame in enumerate(frames):
+    assert len(frames)==32
+    for frame_index,frame in enumerate(frames):
+        index=frame_index//4
         assert len(frame)<=244
         i=4
         while i<len(frame):

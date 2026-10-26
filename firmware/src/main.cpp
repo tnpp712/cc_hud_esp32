@@ -193,12 +193,12 @@ void onIdleWrite(uint32_t unix_ts,
 // state == kAppStateTool, empty otherwise. We just stash it for the
 // main loop's state tick to pick up.
 void onWorkWrite(const V7Fields& f) {
-    WorkSession first;
+    static WorkSession first;
     uint8_t count=0;
     portENTER_CRITICAL(&g_lock);
     bool ready = g_work_assembler.accept(f.work_generation, f.work_count,
                               f.has_work_entry ? &f.work : nullptr,
-                              g_work_sessions, g_work_count);
+                              g_work_sessions, g_work_count, f.has_work_note ? &f.note : nullptr);
     if (ready) {
         g_work_capture_ms = millis();
         count=g_work_count;
@@ -377,7 +377,7 @@ void loop() {
         return;
     }
 
-    cc_hud::LvglUiModel m;
+    static cc_hud::LvglUiModel m; // 扩展会话文字缓冲放在静态区，避免占满 Arduino 任务栈。
     bool alert_now = false;
     int8_t app_state_raw;
     uint32_t thinking_until;
@@ -576,7 +576,7 @@ void loop() {
         cc_hud::ledRingSetMode(cc_hud::kLedModeBattLow);
     } else {
         const cc_hud::LedMode led_mode =
-            cc_hud::ledRingModeForAppState(m.app_state);
+            cc_hud::ledRingModeForAppState(m.app_state,m.app_intervention);
         if (led_mode == cc_hud::kLedModeIdleDone) {
             if (g_ring_off || !(m.quota.metrics_valid & 2)) cc_hud::ledRingSetMode(cc_hud::kLedModeOff);
             else            cc_hud::ledRingShowGauge(pct);

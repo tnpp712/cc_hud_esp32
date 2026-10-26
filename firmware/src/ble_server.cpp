@@ -6,6 +6,7 @@
 #include "ble_server.h"
 
 #include <NimBLEDevice.h>
+#include <esp_system.h>
 
 extern "C" {
 #include <nimble/nimble/host/include/host/ble_gap.h>  // ble_gap_set_prefered_le_phy
@@ -34,6 +35,7 @@ NimBLEServer*         g_server      = nullptr;
 NimBLECharacteristic* g_quota_char  = nullptr;
 NimBLECharacteristic* g_state_char  = nullptr;
 NimBLECharacteristic* g_work_readback = nullptr;
+NimBLECharacteristic* g_note_readback = nullptr;
 
 // Tracks whether at least one central is currently connected. Updated from
 // the server callbacks, read by the rest of the firmware via bleIsConnected.
@@ -215,7 +217,10 @@ public:
 
         // v7 TLV 统一帧(msg_type 0x0B):解析后按已知字段分发。
         if (len >= 4 && data[0] == kQuotaMsgTypeV7Tlv) {
-            V7Fields f{};
+            // NimBLE 在同一任务中串行调用写入回调，复用缓冲以避免大栈帧。
+            static V7Fields f;
+            std::memset(&f,0,sizeof(f));
+            f.metrics_valid=0x3F;f.work.ctx_pct=255;f.work.client_id=1;
             V7Result rc = parseV7Tlv(data, len, f);
             if (rc != V7_OK) {
                 // 分片(V7_ERR_FRAGMENT)与越界(V7_ERR_LEN)均报长度错误;
@@ -362,6 +367,18 @@ public:
     }
 };
 
+// 只读健康信息用于排查重启与任务栈余量，不进入用户界面。
+class HealthCallbacks final : public NimBLECharacteristicCallbacks {
+public:
+    void onRead(NimBLECharacteristic* chr) override {
+        char text[160];
+        std::snprintf(text,sizeof(text),"{\"uptime_ms\":%lu,\"reset_reason\":%d,\"free_heap\":%u,\"stack_margin\":%u}",
+                      static_cast<unsigned long>(millis()),static_cast<int>(esp_reset_reason()),
+                      static_cast<unsigned>(ESP.getFreeHeap()),static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+        chr->setValue(reinterpret_cast<const uint8_t*>(text),std::strlen(text));
+    }
+};
+HealthCallbacks g_health_cb;
 QuotaCallbacks  g_quota_cb;
 ServerCallbacks g_server_cb;
 
@@ -413,6 +430,10 @@ void bleServerInit(const QuotaWriteHandler&       on_write,
         "12345678-aaaa-bbbb-cccc-1234567890a4", NIMBLE_PROPERTY::READ);
     const uint8_t empty = 0;
     g_work_readback->setValue(&empty, 1);
+    g_note_readback=service->createCharacteristic("12345678-aaaa-bbbb-cccc-1234567890a5",NIMBLE_PROPERTY::READ);
+    g_note_readback->setValue(&empty,1);
+    auto* health=service->createCharacteristic("12345678-aaaa-bbbb-cccc-1234567890a6",NIMBLE_PROPERTY::READ);
+    health->setCallbacks(&g_health_cb);
 
     service->start();
 
@@ -436,9 +457,12 @@ void bleStartAdvertising() {
 void bleSetWorkHandler(const WorkWriteHandler& handler) { g_on_work = handler; }
 void bleUpdateWorkReadback(const WorkSession* first, uint8_t count) {
     if (!g_work_readback) return;
-    uint8_t data[384];
+    static uint8_t data[384];
     const size_t size=workReadback(first,count,data);
     g_work_readback->setValue(data,size);
+    static uint8_t notes[464];
+    const size_t note_size=noteReadback(first,count,notes);
+    if(g_note_readback)g_note_readback->setValue(notes,note_size);
 }
 
 bool bleIsConnected() {

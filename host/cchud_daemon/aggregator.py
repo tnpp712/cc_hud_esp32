@@ -13,7 +13,7 @@ class Aggregator:
                   now: float) -> tuple[str, str, str, int, int]:
         best_state, best_detail, best_kind, best_p = "idle", "", "none", -1
         for state, detail, kind in store.live_states(now):
-            p = _PRIORITY.get(state, 0)
+            p = _PRIORITY.get(state, 0) + (1 if state=="waiting" and kind=="error" else 0)
             if p > best_p:
                 best_p, best_state, best_detail, best_kind = p, state, detail, kind
         total, busy = store.counts(now)
