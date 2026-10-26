@@ -38,4 +38,7 @@
 #define LV_FONT_MONTSERRAT_24 1
 #define LV_FONT_MONTSERRAT_48 1
 
+/* 小字会话信息采用压缩中文字库，减少固件体积。 */
+#define LV_USE_FONT_COMPRESSED 1
+
 #endif /* LV_CONF_H */

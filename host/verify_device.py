@@ -22,7 +22,7 @@ WORK = '12345678-aaaa-bbbb-cccc-1234567890a4'
 async def verify(address):
     async with BleakClient(address, timeout=20) as client:
         version = bytes(await client.read_gatt_char(VERSION)).decode().rstrip('\0')
-        if version != '2026.10.23-codex.4':
+        if version != '2026.10.26-codex.5':
             raise RuntimeError(f'设备版本不匹配：{version}')
         print(json.dumps({'固件版本':version,'BLE连接':bool(client.is_connected)},ensure_ascii=False),flush=True)
         class Link:
@@ -48,10 +48,11 @@ async def verify(address):
                 await link.enqueue(encode_v7_state(state,detail,1,int(state in (1,2,3)),kind))
                 row=dict(key=0xC0DE,state={1:'thinking',2:'tool',3:'waiting',4:'idle'}[state],
                          kind=kind,phase={1:'thinking',2:'command',3:kind,4:'idle'}[state],
-                         project='HUD 验收',model='--',effort='high',ctx_pct=42,detail=detail)
+                         project='HUD 验收',session_title='会话标题验收',short_id='A7C2',model='--',effort='high',ctx_pct=42,detail=detail)
                 for frame in encode_work_frames([row],generation+index): await link.enqueue(frame)
                 actual=decode_work_readback(bytes(await client.read_gatt_char(WORK)))
                 assert actual['project']=='HUD 验收' and actual['key']==0xC0DE
+                assert actual['session_title']=='会话标题验收' and actual['short_id']=='A7C2'
                 assert actual['effort']=='high' and actual['ctx_pct']==42 and actual['pending_questions']==0
                 assert actual['state']==(0 if state==4 else state)
                 if state==2: assert actual['phase']==2 and actual['detail']=='Bash'

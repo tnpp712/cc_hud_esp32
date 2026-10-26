@@ -12,6 +12,7 @@ struct WorkSession {
     uint8_t ctx_pct = 255, pending_questions = 0;
     uint32_t elapsed_s = 0;
     uint8_t plan_done = 0, plan_total = 0;
+    char session_title[145] = {}, short_id[13] = {};
     char project[49] = {}, model[33] = {}, effort[13] = {}, detail[25] = {}, step[49] = {};
 };
 
@@ -25,6 +26,9 @@ inline size_t workReadback(const WorkSession* s, uint8_t count, uint8_t* out) {
         size_t len=std::strlen(text);out[pos++]=len;std::memcpy(out+pos,text,len);pos+=len;
     }
     out[pos++]=s->ctx_pct;out[pos++]=s->pending_questions;
+    for (const char* text:{s->session_title,s->short_id}) {
+        size_t len=std::strlen(text);out[pos++]=len;std::memcpy(out+pos,text,len);pos+=len;
+    }
     return pos;
 }
 

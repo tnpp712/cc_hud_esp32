@@ -139,6 +139,7 @@ TAG_WORK_ENTRY = 0x62
 TAG_WORK_GENERATION = 0x63
 TAG_WORK_COUNT = 0x64
 TAG_WORK_ENTRY_V2 = 0x65
+TAG_WORK_ENTRY_V3 = 0x66
 PHASE_CODE = {"idle": 0, "thinking": 1, "command": 2, "edit": 3,
               "read": 4, "search": 5, "mcp": 6, "tool": 7,
               "approval": 8, "question": 9, "test": 10, "plan": 11, "review": 12, "unknown": 13}
@@ -168,7 +169,13 @@ def encode_work_frames(rows: list[dict], generation: int) -> list[bytes]:
             value += bytes([len(text)]) + text
         value += bytes([max(0,min(100,ctx)) if ctx is not None else 255,
                         min(255,max(0,row.get("pending_questions",0)))])
-        frame = encode_v7(common + [(TAG_WORK_ENTRY_V2, value)])
+        short_id = utf8_bytes(row.get("short_id", ""), 12)
+        # 保留已有字段容量，标题使用当前 BLE 帧剩余空间，UTF-8 边界截断。
+        title_budget = min(144, 244 - 15 - len(value) - 2 - len(short_id))
+        title = utf8_bytes(row.get("session_title", ""), title_budget)
+        for text in (title, short_id):
+            value += bytes([len(text)]) + text
+        frame = encode_v7(common + [(TAG_WORK_ENTRY_V3, value)])
         assert len(frame) <= 244
         frames.append(frame)
     return frames
@@ -185,9 +192,15 @@ def decode_work_readback(data: bytes) -> dict:
         n=data[pos];pos+=1
         if pos+n>len(data): raise ValueError('设备工作回读字段越界')
         result[name]=data[pos:pos+n].decode('utf8');pos+=n
-    result.update(ctx_pct=None,pending_questions=0)
-    if len(data)==pos+2:
+    result.update(ctx_pct=None,pending_questions=0,session_title="",short_id="")
+    if len(data)>=pos+2:
         result.update(ctx_pct=data[pos] if data[pos]<=100 else None,pending_questions=data[pos+1])
         pos+=2
+    if pos < len(data):
+        for name in ('session_title', 'short_id'):
+            if pos >= len(data): raise ValueError('设备会话标识字段缺失')
+            n = data[pos]; pos += 1
+            if pos+n > len(data): raise ValueError('设备会话标识字段越界')
+            result[name] = data[pos:pos+n].decode('utf8'); pos += n
     if pos!=len(data): raise ValueError('设备工作回读尾部异常')
     return result

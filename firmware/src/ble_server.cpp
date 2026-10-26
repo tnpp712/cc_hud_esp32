@@ -436,7 +436,7 @@ void bleStartAdvertising() {
 void bleSetWorkHandler(const WorkWriteHandler& handler) { g_on_work = handler; }
 void bleUpdateWorkReadback(const WorkSession* first, uint8_t count) {
     if (!g_work_readback) return;
-    uint8_t data[200];
+    uint8_t data[384];
     const size_t size=workReadback(first,count,data);
     g_work_readback->setValue(data,size);
 }

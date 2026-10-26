@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .event import CcHudEvent
 from .questions import QuestionTracker
+from .session_identity import SessionIdentity
 
 
 def changed_lines(changes: dict) -> tuple[int, int] | None:
@@ -59,11 +60,13 @@ def usage_event(payload: dict, session_id: str, duration_s: int | None = None) -
 
 
 class CodexUsageReader:
-    """仅扫描最近两天且最近活动的文件，保留偏移和半行，避免反复读历史。"""
+    """通过本地索引与 hook 查找活跃会话，增量读取日志和会话名称。"""
 
     def __init__(self, home: Path, now=time.time, closure_path: Path | None = None, sources_path: Path | None = None):
         self.home, self.now = home, now
         self.questions = QuestionTracker(closure_path)
+        self.identity = SessionIdentity(sources_path.with_suffix(".identities.json") if sources_path else None)
+        self.titles = {}
         self.tracked = set()
         self.sources_path = sources_path
         if sources_path:
@@ -111,6 +114,13 @@ class CodexUsageReader:
                 try:
                     with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
                         rows = connection.execute("SELECT rollout_path FROM threads WHERE archived=0 AND updated_at>=? ORDER BY updated_at DESC LIMIT 64", (int(now)-3600,)).fetchall()
+                        columns = {r[1] for r in connection.execute('PRAGMA table_info(threads)')}
+                        if 'title' in columns:
+                            paths = {r[0] for r in rows} | {str(p) for p in self.tracked}
+                            if paths:
+                                placeholders = ','.join('?' for _ in paths)
+                                names = connection.execute(f'SELECT rollout_path,title FROM threads WHERE rollout_path IN ({placeholders})', tuple(paths)).fetchall()
+                                self.titles = {Path(p).resolve(): ' '.join((title or '').split()) for p,title in names}
                     for (value,) in rows:
                         path=Path(value).resolve()
                         if path.is_relative_to((self.home/"sessions").resolve()): files.add(path)
@@ -218,7 +228,13 @@ class CodexUsageReader:
                             latest.metrics_valid |= 32
                         latest_ts = ts
             meta = self.metadata.get(path)
-            if read_any and meta and path not in self.ignored:
+            if meta and path not in self.ignored:
+                title = self.titles.get(path, '')
+                code = self.identity.code(meta.session_id)
+                identity_changed = (meta.session_title, meta.short_id) != (title, code)
+                meta.session_title, meta.short_id = title, code
+                if not read_any and not identity_changed:
+                    continue
                 meta.pending_questions = self.questions.count(meta.session_id)
                 meta.question_ids = self.questions.ids(meta.session_id)
                 updates[meta.session_id] = meta

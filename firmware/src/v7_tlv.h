@@ -31,6 +31,7 @@ enum V7Tag : uint8_t {
     kV7TagWorkGeneration   = 0x63,
     kV7TagWorkCount        = 0x64,
     kV7TagWorkEntryV2      = 0x65,
+    kV7TagWorkEntryV3      = 0x66,
 };
 
 // 会话列表单条(第 4 层)

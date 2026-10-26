@@ -40,7 +40,8 @@ V7Result parseV7Tlv(const uint8_t* buf, size_t len, V7Fields& out) {
                 out.has_work_count = true; out.work_count = v[0];
                 break;
             case kV7TagWorkEntry:
-            case kV7TagWorkEntryV2: {
+            case kV7TagWorkEntryV2:
+            case kV7TagWorkEntryV3: {
                 if (l < 21 || v[0] >= kMaxWorkSessions) return V7_ERR_LEN;
                 WorkSession& w = out.work;
                 w.index = v[0]; w.key = rdU32(v + 1); w.client_id = v[5];
@@ -55,9 +56,19 @@ V7Result parseV7Tlv(const uint8_t* buf, size_t len, V7Fields& out) {
                     if (offset + size > l || size >= caps[n]) return V7_ERR_LEN;
                     cpyStr(dest[n], caps[n], v + offset, size); offset += size;
                 }
-                if (tag==kV7TagWorkEntryV2) {
-                    if (offset+2!=l || (v[offset]>100 && v[offset]!=255)) return V7_ERR_LEN;
+                if (tag==kV7TagWorkEntryV2 || tag==kV7TagWorkEntryV3) {
+                    if (offset+2>l || (v[offset]>100 && v[offset]!=255)) return V7_ERR_LEN;
                     w.ctx_pct=v[offset++];w.pending_questions=v[offset++];
+                }
+                if (tag==kV7TagWorkEntryV3) {
+                    char* identity[] = {w.session_title, w.short_id};
+                    const size_t sizes[] = {sizeof(w.session_title), sizeof(w.short_id)};
+                    for (uint8_t n=0;n<2;++n) {
+                        if (offset>=l) return V7_ERR_LEN;
+                        const uint8_t size=v[offset++];
+                        if (offset+size>l || size>=sizes[n]) return V7_ERR_LEN;
+                        cpyStr(identity[n],sizes[n],v+offset,size);offset+=size;
+                    }
                 }
                 if (offset != l || w.state > 4 || w.plan_done > w.plan_total) return V7_ERR_LEN;
                 out.has_work_entry = true;

@@ -39,12 +39,12 @@ class SessionStore:
         if event.turn_id and meta.get("turn_id") != event.turn_id:
             if event.kind == "metadata" and event.ts < meta.get("updated_at", 0):
                 return
-            project, model = meta.get("project"), meta.get("model")
+            identity = {key: meta.get(key) for key in ("project", "model", "session_title", "short_id")}
             meta.clear()
-            meta.update(turn_id=event.turn_id, project=project, model=model)
+            meta.update(identity, turn_id=event.turn_id)
         if hydrated:
             meta["phase"] = "idle" if event.ended_at is not None else "unknown"
-        for key in ("project", "model", "effort", "phase", "plan", "started_at", "ended_at", "ctx_pct"):
+        for key in ("project", "session_title", "short_id", "model", "effort", "phase", "plan", "started_at", "ended_at", "ctx_pct"):
             value = getattr(event, key)
             if value is not None:
                 meta[key] = value
@@ -68,6 +68,7 @@ class SessionStore:
             elapsed = max(0, int((meta.get("ended_at") or now) - started)) if started else 0
             rows.append(dict(key=zlib.crc32(sid.encode()), state=state, detail=detail,
                              kind=kind, client_id=cid, project=meta.get("project") or "",
+                             session_title=meta.get("session_title") or "", short_id=meta.get("short_id") or "",
                              model=meta.get("model") or "", effort=meta.get("effort") or "",
                              phase=meta.get("phase") or state, elapsed=elapsed,
                              time_known=started is not None, plan_known=valid,

@@ -76,7 +76,7 @@ constexpr uint32_t kLedBlinkHalfMs    = 500;  // 500ms on / 500ms off
 // kDefaultTzMin is the timezone used until a BLE idle-push provides one
 // (480 = UTC+8, China). NVS-persisted tz overrides it.
 // ---------------------------------------------------------------------------
-constexpr const char* kFirmwareVersion = "2026.10.23-codex.4";
+constexpr const char* kFirmwareVersion = "2026.10.26-codex.5";
 constexpr int16_t     kDefaultTzMin    = 480;   // UTC+8
 constexpr const char* kNtpServer1      = "ntp.aliyun.com";
 constexpr const char* kNtpServer2      = "pool.ntp.org";

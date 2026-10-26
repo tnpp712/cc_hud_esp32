@@ -15,7 +15,7 @@ void save(const char* name){
 void render(cc_hud::LvglUiModel& m){for(int i=0;i<30;++i){preview_ms+=20;m.now_ms=preview_ms;cc_hud::lvglUiApply(m);cc_hud::lvglUiTick();}}
 int main(){
     using namespace cc_hud;lvglUiInit();LvglUiModel m;m.ble_connected=true;m.work_count=3;m.total_sessions=3;m.busy_sessions=2;m.app_state=kAppStateTool;m.work_capture_ms=1000;
-    for(int i=0;i<3;++i){auto& s=m.work[i];s.key=i+1;s.state=i==2?0:2;s.phase=2;s.flags=7;s.ctx_pct=42;s.elapsed_s=754;s.plan_done=2;s.plan_total=4;std::strcpy(s.project,i?"另一个项目":"cc_hud_esp32");std::strcpy(s.model,"gpt-6-astra");std::strcpy(s.effort,"high");std::strcpy(s.detail,"Bash");std::strcpy(s.step,"检查状态链路");}
+    for(int i=0;i<3;++i){auto& s=m.work[i];s.key=i+1;s.state=i==2?0:2;s.phase=2;s.flags=7;s.ctx_pct=42;s.elapsed_s=754;s.plan_done=2;s.plan_total=4;std::strcpy(s.project,"cc_hud_esp32");std::strcpy(s.session_title,i?"检查会话与状态显示":"修复待回答提醒");std::strcpy(s.short_id,i?"B8D3":"A7C2");std::strcpy(s.model,"gpt-6-astra");std::strcpy(s.effort,"high");std::strcpy(s.detail,"Bash");std::strcpy(s.step,"检查状态链路");}
     render(m);save("work.ppm");
     m.work[0].pending_questions=1;render(m);save("pending-question.ppm");
     m.work[0].pending_questions=0;

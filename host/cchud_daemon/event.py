@@ -27,6 +27,8 @@ class CcHudEvent:
     metrics_valid: int | None = None
     turn_id: str | None = None
     project: str | None = None
+    session_title: str | None = None
+    short_id: str | None = None
     model: str | None = None
     effort: str | None = None
     phase: str | None = None

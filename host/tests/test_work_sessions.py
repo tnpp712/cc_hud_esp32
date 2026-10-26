@@ -2,7 +2,7 @@ import struct
 from cchud_daemon.adapters.codex import CodexAdapter
 from cchud_daemon.event import CcHudEvent
 from cchud_daemon.session_store import SessionStore
-from cchud_daemon.codec import encode_work_frames, TAG_WORK_ENTRY_V2
+from cchud_daemon.codec import encode_work_frames, TAG_WORK_ENTRY_V3
 from cchud_daemon.hook_payload import compact_payload
 
 
@@ -45,7 +45,7 @@ def test_metadata_and_real_plan_survive_state_updates():
 
 def test_every_work_frame_fits_mtu_and_utf8_is_intact():
     row=dict(key=123,client_id=1,state='tool',kind='none',phase='command',time_known=True,plan_known=True,
-             elapsed=23,plan_done=2,plan_total=4,project='项目'*40,model='model'*20,effort='high',detail='Bash',step='检查文件'*40)
+             elapsed=23,plan_done=2,plan_total=4,project='项目'*40,model='model'*20,effort='high',detail='Bash',step='检查文件'*40,session_title='修复同一个项目的会话展示'*30,short_id='A'*12)
     frames=encode_work_frames([row]*8,7)
     assert len(frames)==8
     for index,frame in enumerate(frames):
@@ -53,12 +53,15 @@ def test_every_work_frame_fits_mtu_and_utf8_is_intact():
         i=4
         while i<len(frame):
             tag,n=frame[i:i+2];v=frame[i+2:i+2+n];i+=n+2
-            if tag!=TAG_WORK_ENTRY_V2:continue
+            if tag!=TAG_WORK_ENTRY_V3:continue
             assert v[0]==index and struct.unpack_from('<I',v,1)[0]==123
             off=16
             for _ in range(5):
                 n=v[off];off+=1;v[off:off+n].decode('utf8');off+=n
-            assert off+2==len(v)
+            off+=2
+            for _ in range(2):
+                n=v[off];off+=1;v[off:off+n].decode('utf8');off+=n
+            assert off==len(v)
 
 
 def test_compact_hook_preserves_pairing_but_not_command_or_response():

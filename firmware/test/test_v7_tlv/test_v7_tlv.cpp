@@ -120,14 +120,26 @@ void test_work_v2_keeps_activity_and_pending_separate() {
     TEST_ASSERT_EQUAL_UINT8(37,f.work.ctx_pct);
     TEST_ASSERT_EQUAL_UINT8(2,f.work.pending_questions);
     uint8_t data[200];size_t size=workReadback(&f.work,1,data);
-    TEST_ASSERT_EQUAL_UINT8(37,data[size-2]);
-    TEST_ASSERT_EQUAL_UINT8(2,data[size-1]);
+    TEST_ASSERT_EQUAL_UINT8(37,data[size-4]);
+    TEST_ASSERT_EQUAL_UINT8(2,data[size-3]);
 }
 void test_work_v2_rejects_invalid_context() {
     uint8_t data[sizeof(kWorkFrameV2)];
     std::memcpy(data,kWorkFrameV2,sizeof(data));data[sizeof(data)-2]=101;
     V7Fields f{};
     TEST_ASSERT_EQUAL(V7_ERR_LEN,parseV7Tlv(data,sizeof(data),f));
+}
+
+void test_work_v3_identity_and_truncation() {
+    V7Fields f{};
+    TEST_ASSERT_EQUAL(V7_OK,parseV7Tlv(kWorkFrameV3,sizeof(kWorkFrameV3),f));
+    TEST_ASSERT_EQUAL_STRING("修复待回答提醒",f.work.session_title);
+    TEST_ASSERT_EQUAL_STRING("A7C2",f.work.short_id);
+    TEST_ASSERT_EQUAL_UINT8(37,f.work.ctx_pct);
+    uint8_t data[384];size_t size=workReadback(&f.work,1,data);
+    TEST_ASSERT_TRUE(size<sizeof(data));
+    TEST_ASSERT_EQUAL_MEMORY("A7C2",data+size-4,4);
+    TEST_ASSERT_EQUAL(V7_ERR_LEN,parseV7Tlv(kWorkFrameV3,sizeof(kWorkFrameV3)-1,f));
 }
 
 int main(int, char**) {
@@ -144,5 +156,6 @@ int main(int, char**) {
     RUN_TEST(test_gauge_means_remaining);
     RUN_TEST(test_work_v2_keeps_activity_and_pending_separate);
     RUN_TEST(test_work_v2_rejects_invalid_context);
+    RUN_TEST(test_work_v3_identity_and_truncation);
     return UNITY_END();
 }
